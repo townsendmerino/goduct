@@ -241,14 +241,29 @@ Wire format is stable:
 
 ## What's supported (v0.1)
 
-**Frameworks:** chi
-**Go types:** primitives, structs, slices, maps with string keys, pointers, `time.Time` (→ ISO 8601 string), `[]byte` (→ base64 string), `*T` (→ optional), enums (`type Status string` + consts → TS string union)
-**Validation tags:** `required`, `email`, `url`, `min`, `max`, `len`, `oneof`
-**Frontend:** fetch client, zod schemas, React Query hooks
+**Frameworks:** chi. (gin, echo, std `net/http` mux — _planned for v0.2_.)
 
-**Not yet supported (planned):** gin, echo, std `net/http` mux; generics; custom `MarshalJSON`; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging.
+**Go types:** primitives, structs, slices, maps with string keys, pointers (`*T` → optional), enums (`type Status string` + consts → TS string union), and these special types ([ADR 0017](docs/decisions/0017-special-stdlib-types.md)):
 
-When goduct sees something it can't represent, it errors loudly with a file:line pointer — no silent skipping.
+| Go type | Wire / TypeScript |
+| --- | --- |
+| `time.Time` | ISO 8601 string |
+| `time.Duration` | number (int64 nanoseconds) |
+| `[]byte` | base64 string |
+| `json.RawMessage` | `unknown` (JSON passthrough) |
+| `github.com/google/uuid.UUID` | string |
+
+Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, custom `MarshalJSON`, …) are out of scope for v0.1 — wrap them in a string field and convert at the handler boundary. goduct errors loudly with a `file:line` pointer rather than emitting a wrong wire type — no silent skipping.
+
+**Validation tags** (translated to zod): `required`, `email`, `url`, `min`, `max`, `len`. `oneof` — _planned for v0.2_ ([ADR 0006](docs/decisions/0006-validation-tag-translation.md) specifies it; the v0.1 zod generator does not yet translate it). Tags zod can't express are not enforced client-side but still run server-side via go-playground/validator.
+
+**Frontend:** TypeScript types, zod schemas, typed fetch client. React Query hooks (`--hooks`) — _planned for v0.2_ ([ADR 0008](docs/decisions/0008-react-query-deferred-to-v02.md)).
+
+**Spec-trust caveats** — shipped and behaves per spec, but not yet exercised by the chi-basic golden (v0.2 adds coverage): the `url` and `len` validators; the typed client's combined path+query argument object; the Go adapter's `bool`/`float` query-param conversion.
+
+**Known v0.2 polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
+
+**Not yet supported (planned):** generics; custom `MarshalJSON` / custom type adapters; raw `http.HandlerFunc` mode; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
 
 ---
 
