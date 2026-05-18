@@ -5,3 +5,10 @@
 /bin/
 *.test
 *.out
+
+# goduct CLI binary (root) and generator outputs in examples.
+# The testdata/expected/ goldens are the source of truth; a
+# committed examples/<fw>/api/goduct_routes.go would silently
+# diverge from them.
+/goduct
+examples/*/api/goduct_routes.go

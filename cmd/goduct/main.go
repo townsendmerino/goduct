@@ -1,0 +1,267 @@
+// Command goduct is the v0.1 CLI:
+//
+//	goduct gen <pattern> --out <dir> [--types --zod --client --go-adapter | --all]
+//
+// Layout (README "Generators"): the TS generators write into --out; the
+// Go adapter writes goduct_routes.go *beside the source package* (ADR
+// 0009), so its dir comes from a route's Pos, never --out. Stdlib flag
+// only; the four generators share the ADR 0022 Generate shape. Exit: 0
+// ok; 1 analyze/generate/IO error; 2 usage (incl. the v0.2-only --hooks).
+package main
+
+import (
+	"bytes"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/townsendmerino/goduct/internal/analyzer"
+	"github.com/townsendmerino/goduct/internal/generators/goadapter"
+	"github.com/townsendmerino/goduct/internal/generators/tsclient"
+	"github.com/townsendmerino/goduct/internal/generators/tstypes"
+	"github.com/townsendmerino/goduct/internal/generators/zod"
+	"github.com/townsendmerino/goduct/internal/ir"
+)
+
+func main() { os.Exit(run(os.Args[1:])) }
+
+// run is main's testable core: argv without the program name in,
+// process exit code out. It never calls os.Exit itself.
+func run(argv []string) int {
+	if len(argv) == 0 || argv[0] != "gen" {
+		usage()
+		return 2
+	}
+	return runGen(argv[1:])
+}
+
+// genSpec is one row of the generator dispatch table. fn is the ADR 0022
+// Generate entry point; goSrc marks the adapter, whose output goes to
+// the source package dir (ADR 0009) rather than --out.
+type genSpec struct {
+	name  string // CLI flag name, e.g. "types"
+	out   string // output filename, e.g. "types.ts"
+	fn    func(*ir.API, io.Writer) error
+	goSrc bool
+}
+
+var specs = []genSpec{
+	{"types", "types.ts", tstypes.Generate, false},
+	{"zod", "schemas.ts", zod.Generate, false},
+	{"client", "client.ts", tsclient.Generate, false},
+	{"go-adapter", "goduct_routes.go", goadapter.Generate, true},
+}
+
+func runGen(args []string) int {
+	fs := flag.NewFlagSet("goduct gen", flag.ContinueOnError)
+	fs.Usage = usage
+	sel := make(map[string]*bool, len(specs))
+	for _, s := range specs {
+		sel[s.name] = fs.Bool(s.name, false, "generate "+s.out)
+	}
+	var (
+		all   = fs.Bool("all", false, "generate every v0.1 generator")
+		hooks = fs.Bool("hooks", false, "React Query hooks (v0.2; rejected in v0.1)")
+		out   = fs.String("out", "", "output directory for the TypeScript generators")
+		dir   = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
+		tags  = fs.String("tags", "", "comma-separated build tags")
+		tests = fs.Bool("tests", false, "include _test.go files when loading")
+	)
+
+	// README puts the package pattern first, before any flags; the
+	// stdlib flag parser stops at the first non-flag token, so pull the
+	// leading positional out by hand before parsing the rest.
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fmt.Fprintln(os.Stderr, "goduct: missing package pattern (e.g. ./api)")
+		usage()
+		return 2
+	}
+	pattern := args[0]
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2 // flag already printed the error + usage
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "goduct: unexpected argument %q (pattern must come first)\n", fs.Arg(0))
+		return 2
+	}
+
+	// --hooks is advertised in the README but deferred to v0.2 (ADR
+	// 0008). Reject it explicitly so users get a clear pointer, not a
+	// silently-ignored flag. --all does NOT imply hooks.
+	if *hooks {
+		fmt.Fprintln(os.Stderr, "goduct: --hooks (React Query) is not available in v0.1; "+
+			"planned for v0.2 (ADR 0008). Generate --client and write hooks by hand for now.")
+		return 2
+	}
+
+	chosen := pickGenerators(sel, *all)
+	if len(chosen) == 0 {
+		fmt.Fprintln(os.Stderr, "goduct: no generator selected (use --types/--zod/--client/--go-adapter or --all)")
+		usage()
+		return 2
+	}
+	needOut := false
+	for _, s := range chosen {
+		if !s.goSrc {
+			needOut = true
+		}
+	}
+	if needOut && *out == "" {
+		fmt.Fprintln(os.Stderr, "goduct: --out is required for the TypeScript generators")
+		return 2
+	}
+
+	api, err := analyzer.Analyze([]string{pattern}, analyzer.LoadOptions{
+		Dir:       *dir,
+		BuildTags: splitTags(*tags),
+		Tests:     *tests,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "goduct: analyze: %v\n", err)
+		return 1
+	}
+
+	// Render everything to memory first: a generator failure (e.g. an
+	// ADR 0022 §5 panic surfaced as an error) must abort before any
+	// file is written, so a failed run never leaves partial output.
+	type pending struct {
+		path string
+		data []byte
+	}
+	var writes []pending
+	for _, s := range chosen {
+		var buf bytes.Buffer
+		if err := s.fn(api, &buf); err != nil {
+			fmt.Fprintf(os.Stderr, "goduct: %s: %v\n", s.name, err)
+			return 1
+		}
+		var dst string
+		if s.goSrc {
+			d, err := sourceDir(api)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "goduct: %s: %v\n", s.name, err)
+				return 1
+			}
+			dst = filepath.Join(d, s.out)
+		} else {
+			dst = filepath.Join(*out, s.out)
+		}
+		writes = append(writes, pending{dst, buf.Bytes()})
+	}
+
+	if needOut {
+		if err := os.MkdirAll(*out, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "goduct: create --out: %v\n", err)
+			return 1
+		}
+	}
+	for _, p := range writes {
+		if err := os.WriteFile(p.path, p.data, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "goduct: write %s: %v\n", p.path, err)
+			return 1
+		}
+	}
+	fmt.Printf("goduct: wrote %d file(s)\n", len(writes))
+	for _, p := range writes {
+		fmt.Println("  " + p.path)
+	}
+	return 0
+}
+
+// pickGenerators resolves the selected specs. --all turns on every
+// v0.1 generator (hooks excluded — it is handled and rejected upstream).
+func pickGenerators(sel map[string]*bool, all bool) []genSpec {
+	var out []genSpec
+	for _, s := range specs {
+		if all || *sel[s.name] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// sourceDir derives the source package directory for the Go adapter
+// from a route's (or, lacking routes, a type's) Pos, which the analyzer
+// records as "file:line:col". The adapter lands here, not under --out,
+// because it must compile in the handlers' package (ADR 0009).
+func sourceDir(api *ir.API) (string, error) {
+	var pos string
+	if len(api.Routes) > 0 {
+		pos = api.Routes[0].Pos
+	} else {
+		for _, td := range api.Types {
+			pos = td.Pos
+			break
+		}
+	}
+	if f := posFile(pos); f != "" {
+		return filepath.Dir(f), nil
+	}
+	return "", fmt.Errorf("cannot locate source package directory (no route/type position available)")
+}
+
+// posFile strips the trailing :line[:col] from an analyzer Pos string,
+// leaving the filename. The filename itself carries no ':' on the
+// platforms goduct targets, so peel at most two numeric suffixes.
+func posFile(pos string) string {
+	for i := 0; i < 2; i++ {
+		j := strings.LastIndex(pos, ":")
+		if j < 0 || !allDigits(pos[j+1:]) {
+			break
+		}
+		pos = pos[:j]
+	}
+	return pos
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func splitTags(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var out []string
+	for _, t := range strings.Split(s, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func usage() {
+	fmt.Fprint(os.Stderr, `goduct - typed TS/Go clients from annotated Go handlers
+
+usage: goduct gen <pattern> --out <dir> [generators]
+
+generators (opt-in; pick any, or --all):
+  --types        types.ts          (TS interfaces + type aliases)
+  --zod          schemas.ts        (zod runtime validators)
+  --client       client.ts         (typed fetch client)
+  --go-adapter   goduct_routes.go  (chi wiring; written beside the source
+                                    package per ADR 0009, NOT under --out)
+  --all          all of the above (NOT --hooks; that is v0.2, ADR 0008)
+
+flags:
+  --out <dir>    output dir for the TS generators (required unless only
+                 --go-adapter is selected)
+  --dir <dir>    working dir for resolving <pattern> (default: cwd)
+  --tags <list>  comma-separated build tags
+  --tests        include _test.go files when loading
+
+exit codes: 0 ok | 1 analyze/generate/IO error | 2 usage error
+`)
+}
