@@ -1,185 +1,129 @@
-# Pre-v0.1-release reconciliations
+# Post-v0.1 follow-ups
 
-A running checklist of follow-ups to settle **before tagging v0.1**. This is
-not an ADR — ADRs record decisions; this records work the decisions implied
-but that has not been done yet. Remove an item when it is reconciled (and,
-if it required a decision, record that decision in an ADR).
+v0.1.0 shipped (milestone 14, 2026-05-18). The pre-v0.1 reconciliation
+queue was burned down: the README and ADRs were aligned to shipped
+reality (ADR 0017 type table, ADR 0006 `oneof` Consequences amendment,
+ADR 0008 `--hooks` deferral, ADR 0022 §1 `Generate` signature, raw
+`http.HandlerFunc` marked v0.2 per ADR 0001/0014). The items below are
+the remaining **non-blocking** follow-ups — none gates a release; each
+has a concrete trigger.
 
-## [ ] README "What's supported" vs ADR 0017
-
-`README.md` → "What's supported (v0.1)" lists only `time.Time` and `[]byte`
-as rich/special types. [ADR 0017](0017-special-stdlib-types.md) also blesses
-`time.Duration`, `json.RawMessage`, and `github.com/google/uuid.UUID`.
-
-**Action:** update the README's supported-types list to match ADR 0017's
-table (and its explicit out-of-scope list) so the advertised feature set and
-the decisions agree. Pure docs change; no ADR needed.
-
-## [ ] README §--hooks documented as functional, but v0.1-deferred
-
-`README.md` → §`--hooks` shows React Query usage as if functional, but
-v0.1 ships `--hooks` as exit-2-deferred per
-[ADR 0008](0008-react-query-deferred-to-v02.md). The CLI does exactly
-what the prompt mandates (reject with a v0.2 pointer); the README is the
-stale artifact.
-
-**Action (pre-v0.1 release):** edit README §`--hooks` to clearly mark it
-as v0.2 — either remove the usage example or wrap it in a "Planned for
-v0.2" callout. Part of the README/TODO reconciliation milestone, with
-the ADR 0017 supported-types item above. Pure docs; no ADR needed.
+This is not an ADR — ADRs record decisions; this records implied work
+not yet done. Remove an item when it is reconciled (and, if it required
+a decision, record that decision in an ADR).
 
 ## [ ] Normalize Format A error prefixes
 
-The A-vs-B harmonization question is **settled** by
-[ADR 0019](0019-error-message-formats-by-layer.md): two formats by layer
-(Format A single-line for whole-construct errors; Format B 3-line
-categorized for field errors), divergence accepted by design. One residual
-remains — not every Format A emitter matches the template byte-for-byte:
+[ADR 0019](0019-error-message-formats-by-layer.md) settles the A-vs-B
+question (two formats by layer, divergence accepted by design). One
+residual: not every Format A emitter matches the template
+byte-for-byte:
 
-- `annotations.go` currently emits: `goduct: <msg> (line N): <src>`
-- `loader.go` currently emits: `<pkgpath>: [<kind>] <file:line:col>: <msg>`
-- ADR 0019 establishes the Format A template as:
-  `goduct: <file>:<line>:<col>: <msg>`
+- `annotations.go` emits: `goduct: <msg> (line N): <src>`
+- `loader.go` emits: `<pkgpath>: [<kind>] <file:line:col>: <msg>`
+- ADR 0019's Format A template: `goduct: <file>:<line>:<col>: <msg>`
 - Route discovery (`internal/analyzer/routes.go`) already matches it.
 
-**Decision (per ADR 0019, still open):** for v0.1, either keep the two
-layers' existing prefixes as-is (they are Format-A *category*, just not
-byte-identical), **or** normalize them to the template. Pre-v0.1 release
-work; if normalized it is a code change — record the choice in ADR 0019's
+**Non-blocking:** ADR 0019's Implementation note explicitly
+pre-authorizes shipping with the existing prefixes ("normalizing them
+is a pre-v0.1 cleanup, not a change this ADR requires"). They are
+Format-A *category*, just not byte-identical. **Trigger / action:** if
+normalized it is a code change — record the choice in ADR 0019's
 Implementation note (or a short follow-up ADR).
 
 ## [ ] Audit `*types.Type` kind switches for Alias unwrapping
 
-Go 1.22+ alias types (`*types.Alias`, enabled by default in 1.24+) mean a
-type switch on a `types.Type` can miss the real kind: `any`/`interface{}`
-and `type Foo = Bar` arrive as `*types.Alias`, not `*types.Interface` /
-the aliased type. `fieldtypes.go` already handles this (`types.Unalias(t)`
-before switching, after pointer unwrap).
+Go 1.22+ alias types (`*types.Alias`, default in 1.24+) mean a type
+switch on a `types.Type` can miss the real kind: `any`/`interface{}`
+and `type Foo = Bar` arrive as `*types.Alias`. `fieldtypes.go` handles
+this (`types.Unalias(t)` before switching, after pointer unwrap).
 
-**Action:** audit every `*types.Type` kind switch for the same hazard —
-`structfields.go` and any future type-walking code (notably the Part 2
-traversal). Pattern: call `types.Unalias(t)` before switching on kind.
-Pure code-hygiene sweep; no ADR needed.
+**Milestone-14 read-only audit:** `structfields.go` has no raw
+`types.Type` kind-switch; the only one is in `fieldtypes.go`, already
+`Unalias`-safe. No latent bug found. **Trigger / action:** this remains
+a standing reminder — any future type-walking code must call
+`types.Unalias(t)` before switching on kind. Pure code-hygiene; no ADR.
 
 ## [ ] `uuid.UUID` detection has no real-import test
 
 `isSpecialBuiltin`'s `github.com/google/uuid.UUID` arm
 (`structfields.go`/`fieldtypes.go`) is exercised only by the
 qualified-name unit dispatch, not by a real `github.com/google/uuid`
-import. The dep was deliberately not added (not worth the bloat/precedent
-for one three-line, branch-free switch arm).
+import. The dep was deliberately not added (not worth the
+bloat/precedent for one three-line, branch-free switch arm).
 
-**Action (pre-v0.1):** either synthesize a `*types.Named` in a unit test
+**Trigger / action:** either synthesize a `*types.Named` in a unit test
 (fake `Pkg` with path `github.com/google/uuid`, name `UUID`) and assert
 `isSpecialBuiltin`, or add the dep with a real-import integration test.
-**Risk: low** — the qualified-name switch is three lines with no
-branching. Known, named, bounded; fix when the cost is justified by use.
+**Risk: low** — three lines, no branching. Fix when the cost is
+justified by use.
 
 ## [ ] Named-alias-of-named collapses to a fresh TypeStruct
 
-`type A B` (where `B` is a struct) currently emits as a fresh
-`TypeStruct` with `B`'s resolved field set, not as `TypeAlias → B`.
-`types.Named.Underlying()` peels named chains, so the type traversal
-cannot syntactically distinguish `type A B` from
-`type A struct { ...same fields... }`. Wire shape and generator output
-are **identical** (encoding/json and the TS interface don't care); the
-only loss is **dedup** — if both `A` and `B` are referenced separately,
-generators emit two identical TS interfaces instead of `type A = B`.
+`type A B` (where `B` is a struct) emits as a fresh `TypeStruct` with
+`B`'s resolved field set, not as `TypeAlias → B`.
+`types.Named.Underlying()` peels named chains, so the traversal cannot
+syntactically distinguish `type A B` from `type A struct { …same… }`.
+Wire shape and generator output are **identical**; the only loss is
+**dedup** — if both `A` and `B` are referenced, generators emit two
+identical TS interfaces instead of `type A = B`.
 
-**Action:** not user-facing-broken; a polish concern that will bite with
-many aliases of one struct. Resolving needs distinguishing the syntactic
-alias from a re-declaration (token/AST-level analysis, since
-`Underlying()` doesn't preserve it). Investigate if it becomes a real
-pain point. Tracked, not blocking; no ADR needed.
+Documented for users in the README "Known v0.2 polish" caveat.
+**Trigger / action:** not user-facing-broken; will bite with many
+aliases of one struct. Resolving needs distinguishing the syntactic
+alias from a re-declaration (token/AST-level, since `Underlying()`
+doesn't preserve it). Investigate if it becomes a real pain point. No
+ADR needed.
 
-## [ ] `Generate` signature drift: value vs pointer
+## [ ] Spec-trust coverage gaps (zod, tsclient, goadapter)
 
-[ADR 0003](0003-generators-as-pipeline.md) and `README.md` state the
-generator entrypoint as `Generate(ir.API, io.Writer)` (value);
-[ADR 0022](0022-generator-conventions.md) §1 pins
-`Generate(*ir.API, io.Writer) error` (pointer). The pointer form is
-correct — it matches `Analyze`'s `*ir.API` return and avoids copying the
-IR. The contract is currently stated two ways.
+Implemented per spec but not exercised by the chi-basic golden.
+Documented for users in the README "Spec-trust caveats". **Trigger /
+action:** add an `examples/coverage/` example (or extend chi-basic)
+that exercises these, then convert to golden assertions.
 
-**Action (pre-v0.1):** reconcile the docs —
-- ADR 0003: amend the Decision text to the pointer form.
-- `README.md`: update any `Generate(...)` signature mentions.
-Pure docs; ADR 0022 §1 is authoritative in the meantime.
-
-## [ ] zod generator: 7 code paths are spec-only, not golden-verified
-
-The chi-basic `schemas.ts` golden does not exercise these zod paths;
-they are implemented per the Prompt 9 table + ADR 0017 (spec-trust),
-not byte-verified:
-
-1. Multi-validator chain ordering (implemented source-order; golden has
-   no field with ≥2 effective validators).
-2. `oneof` translation — deferred entirely (unreachable in v0.1).
-3. `url` / `len` validators (never exercised).
-4. `uint` builtin rendering → `z.number().int().nonnegative()`
-   (no uint field emitted).
-5. `int` builtins on wire-visible fields (none; `Limit` is filtered out
-   by `EmitTS`).
-6. Int-enum form `z.union([z.literal(...)])` (chi-basic has only a
-   string enum).
-7. `TypeAlias` and D5 slice/map-alias paths (none in the emitted set).
-
-**Action (pre-v0.1):** add an `examples/coverage/` example (or extend
-chi-basic) that exercises these, OR explicitly accept the v0.1 risk in
-the README's "What's supported" section. Accepted as spec-trust for the
-v0.1 ship; this keeps the gap visible.
-
-## [ ] tsclient: path+query argument-merge form is spec-trust
-
-chi-basic has no route with BOTH path AND query params, so the merge
-form is unverified by golden. tsclient implements path+query merged into
-one `params` object (path members then query members, joined by `; `;
-path required, query per `Param.Optional`). Exercised by the golden:
-path-only, query-only, body-only, path+body, error-only — but NOT
-path+query(+body) combined.
-
-**Action (pre-v0.1):** add a coverage example exercising a route with
-both path and query params, OR explicitly accept the gap in the
-README's "What's supported" section. Accepted spec-trust for v0.1.
+- **zod** (7 paths): multi-validator chain ordering; `url`/`len`
+  validators; `uint` → `z.number().int().nonnegative()`; `int` on
+  wire-visible fields; int-enum `z.union([z.literal(...)])`;
+  `TypeAlias` and D5 slice/map-alias paths. (`oneof` is *not* here —
+  it is unimplemented in v0.1, see the ADR 0006 Consequences amendment
+  and the README; it is a v0.2 *feature*, not a coverage gap.)
+- **tsclient:** path+query merged into one `params` object (path
+  members then query, `; `-joined; path required, query per
+  `Param.Optional`). Golden covers path-only, query-only, body-only,
+  path+body, error-only — but not path+query(+body) combined.
+- **goadapter:** `bool`/`float` query-param conversion
+  (`strconv.ParseBool`, `strconv.ParseFloat(v, 64)`, messages
+  `"<wire> must be a boolean"` / `"<wire> must be a number"`). Golden
+  exercises only `int` (`ListUsers.Limit` via `strconv.Atoi`).
 
 ## [ ] v0.2: enrich the IR for Go-side codegen (RequestType + source dir)
 
 Two v0.1 workarounds share one root cause: `ir.API`/`ir.Route` don't
 carry enough position/identity info for Go-side code generation.
 
-1. **Request type.** `ir.Route` has `BodyType` (wire body, nil for
-   non-body routes) but no `RequestType` (the handler's second-param
-   type, always present). goadapter works around this via the v0.1
-   naming convention in
+1. **Request type.** `ir.Route` has `BodyType` (nil for non-body
+   routes) but no `RequestType`. goadapter works around this via the
+   v0.1 naming convention in
    [ADR 0026](0026-goadapter-request-type-name-convention.md).
 2. **Source directory.** The Go adapter must be written into the
-   handlers' own package directory (ADR 0009), but nothing on `*ir.API`
+   handlers' package directory (ADR 0009), but nothing on `*ir.API`
    exposes that path. `cmd/goduct/main.go` derives it by parsing
-   `Route.Pos` (`"file:line:col"`) — a string-peel workaround.
+   `Route.Pos` (`"file:line:col"`).
 
 **v0.2:** add `RequestType *TypeRef` to `ir.Route` (populated by
-`DiscoverRoutes`, which already has the handler signature) **and** a
-stable per-package source directory on `ir.API`. goadapter then reads
-the request type directly (the naming convention falls away — any
-handler may use any request-type name) and the CLI reads the source
-dir directly (the `Route.Pos` parse in main.go is deleted). One
-additive, backward-compatible IR change fixes both gaps.
+`DiscoverRoutes`) **and** a stable per-package source directory on
+`ir.API`. goadapter then reads the request type directly (the naming
+convention falls away) and the CLI reads the source dir directly (the
+`Route.Pos` parse in main.go is deleted). One additive,
+backward-compatible IR change fixes both.
 
 ## [ ] goadapter: custom status-code mapping incomplete
 
 goadapter's `http.Status*` mapping covers 200/201/204 — the only codes
-the analyzer produces via ADR 0014's status defaults. A user explicit
-`goduct:status` (e.g. 418, 422) is not yet mapped. Pre-v0.1: either map
-the full `net/http` `Status*` constant set, or panic with a clear
-message naming the unknown code (ADR 0022 §5). Tracked.
-
-## [ ] goadapter bool/float query-param conversion is spec-trust
-
-goadapter implements bool/float query-param conversion per spec
-(`strconv.ParseBool`, `strconv.ParseFloat(v, 64)`, messages
-`"<wire> must be a boolean"` / `"<wire> must be a number"`) but the
-chi-basic golden exercises only `int` (ListUsers.Limit via
-`strconv.Atoi`). Pre-v0.1: add a coverage example exercising bool and
-float query params, OR explicitly accept the v0.1 risk in the README.
-Spec-trust, same shape as zod's unexercised paths and tsclient's
-path+query merge.
+the analyzer produces via ADR 0014's status defaults. An explicit
+`goduct:status` (e.g. 418, 422) is unmapped and loud-fails (panic per
+ADR 0022 §5), which is acceptable v0.1 behavior (ADR 0007) and
+documented for users in the README "Known v0.2 polish" caveat.
+**Trigger / action (v0.2):** map the full `net/http` `Status*` set, or
+formalize the loud-fail in an ADR.
