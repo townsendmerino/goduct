@@ -4,7 +4,8 @@
 **Date:** 2026-05-18
 **Amended:** 2026-05-18 — §2: Go header is one-line (matches the frozen
 golden); source string derived from `api` via `internal/gen.SourcePath`,
-not a CLI side channel
+not a CLI side channel. §9 added (emission eligibility,
+`internal/gen.EmitTS`); §6 lists `EmitTS` and `JSDoc` (see ADR 0023).
 
 ## Context
 
@@ -117,6 +118,9 @@ generators:
 - Grouping routes by `Tag` for client emit.
 - `SourcePath(api)` — the package import path for the `// source:` header
   line (§2); comma-joined + sorted for future multi-package input.
+- `EmitTS(td)` — whether a `TypeDef` produces a TS declaration (§9).
+- `JSDoc(typeName, rawDoc)` — godoc → JSDoc summary (see
+  [0023](0023-godoc-to-jsdoc-transformation.md)).
 - Translating `ir.TypeRef` to target-language type strings is **NOT**
   shared — each generator handles its own target language's idioms.
 
@@ -140,6 +144,25 @@ in a separate test package and is the last milestone before v0.1 release.
 Generators do not import each other. If a piece of logic looks shared
 between two generators, it goes into `internal/gen/`. This preserves the
 parallel-generation model from [0003](0003-generators-as-pipeline.md).
+
+### 9. Emission eligibility
+
+Generators may emit a subset of `api.Types`. The shared helper
+`internal/gen.EmitTS` reports whether a `TypeDef` should produce a
+TypeScript declaration. The rule: a `TypeStruct` with empty
+`WireFields` is omitted; `TypeEnum` and `TypeAlias` always emit.
+
+Rationale: request types whose every field is path/query/header carry
+no wire body — they exist in the IR to drive parameter extraction in
+the Go adapter, not to appear on the JSON wire. Generating an empty
+`export interface GetUserRequest {}` would be misleading.
+
+`TopoSortTypes` returns all types unfiltered. Generators apply `EmitTS`
+(or their own emission predicate) at emit time so that dependency edges
+from non-emitted types still inform the order of emitted ones.
+
+Go-side generators (goadapter) are unaffected by this rule — Go output
+declares every type the adapter uses, and this filter is TS-specific.
 
 ## Consequences
 
