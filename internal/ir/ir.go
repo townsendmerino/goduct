@@ -165,7 +165,26 @@ type Field struct {
 	Optional   bool             // pointer or `omitempty`
 	Validation []ValidationRule // from `validate:` tag
 	Doc        string
+	// Source is where this field's value comes from on the wire. Set by
+	// the analyzer from the field's tag. Zero value is FieldSourceJSON, so
+	// non-request types (response/nested) need no special handling.
+	Source FieldSource
 }
+
+// FieldSource is where a struct field's value comes from. For request
+// types it is set per the field's path/query/header/json tag; for all
+// other (response/nested) types every field is FieldSourceJSON or
+// FieldSourceNone, and a path/query/header tag on such a type is a load
+// error.
+type FieldSource int
+
+const (
+	FieldSourceJSON   FieldSource = iota // wire body (default for non-request types)
+	FieldSourcePath                      // URL path
+	FieldSourceQuery                     // URL query string
+	FieldSourceHeader                    // HTTP header
+	FieldSourceNone                      // untagged; not on the wire
+)
 
 // EnumValue is one constant of an enum-style type.
 type EnumValue struct {

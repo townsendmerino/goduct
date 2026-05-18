@@ -58,3 +58,5 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0012](0012-generated-code-passes-modernize.md) | Hold generated Go to the module's vet/modernize bar | Accepted |
 | [0013](0013-un-nest-example-testdata-fixtures.md) | Un-nest the example; ignore golden fixtures via testdata/ | Accepted |
 | [0014](0014-handler-signature-strictness.md) | Handler signature strictness (idiomatic mode) | Accepted |
+| [0015](0015-query-header-optionality-rule.md) | Query/header parameter optionality rule | Accepted |
+| [0016](0016-field-source-in-ir.md) | Field source in the IR | Accepted |
