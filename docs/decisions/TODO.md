@@ -34,3 +34,16 @@ layers' existing prefixes as-is (they are Format-A *category*, just not
 byte-identical), **or** normalize them to the template. Pre-v0.1 release
 work; if normalized it is a code change — record the choice in ADR 0019's
 Implementation note (or a short follow-up ADR).
+
+## [ ] Audit `*types.Type` kind switches for Alias unwrapping
+
+Go 1.22+ alias types (`*types.Alias`, enabled by default in 1.24+) mean a
+type switch on a `types.Type` can miss the real kind: `any`/`interface{}`
+and `type Foo = Bar` arrive as `*types.Alias`, not `*types.Interface` /
+the aliased type. `fieldtypes.go` already handles this (`types.Unalias(t)`
+before switching, after pointer unwrap).
+
+**Action:** audit every `*types.Type` kind switch for the same hazard —
+`structfields.go` and any future type-walking code (notably the Part 2
+traversal). Pattern: call `types.Unalias(t)` before switching on kind.
+Pure code-hygiene sweep; no ADR needed.
