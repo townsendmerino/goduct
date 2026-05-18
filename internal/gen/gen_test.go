@@ -145,3 +145,12 @@ func TestJSDoc_vs_JSDocFull(t *testing.T) {
 		t.Errorf("JSDocFull empty = %q", got)
 	}
 }
+
+func TestPackageName(t *testing.T) {
+	if got := PackageName(chiBasic(t)); got != "api" {
+		t.Errorf("PackageName(chi-basic) = %q, want %q", got, "api")
+	}
+	if got := PackageName(&ir.API{}); got != "" {
+		t.Errorf("PackageName(empty) = %q, want \"\"", got)
+	}
+}

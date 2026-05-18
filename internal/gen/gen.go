@@ -62,6 +62,23 @@ func SourcePath(api *ir.API) string {
 	return strings.Join(keys, ", ")
 }
 
+// PackageName returns the unqualified package name shared by api's
+// routes — the last path segment of SourcePath (e.g. "api"). v0.1 is
+// single-package; "" when no route carries a named type.
+func PackageName(api *ir.API) string {
+	p := SourcePath(api)
+	if p == "" {
+		return ""
+	}
+	if i := strings.Index(p, ", "); i >= 0 {
+		p = p[:i] // v0.1: first of any multi-package join
+	}
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		return p[i+1:]
+	}
+	return p
+}
+
 var jsdocCopula = map[string]bool{
 	"is": true, "are": true, "was": true, "were": true,
 	"represents": true, "represent": true,
