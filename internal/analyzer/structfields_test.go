@@ -137,18 +137,18 @@ func TestParseStructField_Errors(t *testing.T) {
 			"ID", respCtx(), "E2", "not allowed",
 		},
 		{
-			"embedded X", `type Base struct{}
+			"embedded B5", `type Base struct{}
 type R struct{ Base }`,
-			"Base", reqCtx(), "X", "embedded fields in request structs are not yet supported",
+			"Base", reqCtx(), "B5", "embedded fields in request structs are not yet supported",
 		},
 		{
-			"pointer path X", `type R struct{ ID *string ` + "`path:\"id\"`" + ` }`,
-			"ID", reqCtx(), "X", "cannot be a pointer",
+			"pointer path PATH1", `type R struct{ ID *string ` + "`path:\"id\"`" + ` }`,
+			"ID", reqCtx(), "PATH1", "cannot be a pointer",
 		},
 		{
-			"unsupported query type X", `type Bad struct{ X int }
+			"unsupported query type PATH2", `type Bad struct{ X int }
 type R struct{ B Bad ` + "`query:\"b\"`" + ` }`,
-			"B", reqCtx(), "X", "unsupported type",
+			"B", reqCtx(), "PATH2", "unsupported type",
 		},
 		{
 			"json interface B2", `type R struct{ Any any ` + "`json:\"any\"`" + ` }`,

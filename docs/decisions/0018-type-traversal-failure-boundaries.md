@@ -2,7 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-05-17
-**Amended:** 2026-05-17 — added categories B4 (hard error) and D5 (silently allowed)
+**Amended:** 2026-05-17 — added B4, D5; then B5, the cross-ADR `PATH*`
+enforcement convention (PATH1/PATH2), and INTERNAL1
 
 ## Context
 
@@ -68,6 +69,18 @@ must include the field's `file:line:col`, the field's qualified Go name
   union of A1–A5/B2 applied at the named-type level; it exists as a
   separate category for grep-ability when users see a confusing alias error
   vs. a direct-field error. (Added by the 2026-05-17 amendment.)
+- **B5.** Embedded struct field in a request type — a request struct
+  containing an embedded (anonymous-named) field. Error message:
+  `"B5: embedded fields in request structs are not yet supported (field
+  %s in %s) — extract to a named field with an explicit tag"`. Rationale:
+  embedded fields promote tags and field names from the inner struct,
+  which interacts non-obviously with path/query/header/json source
+  assignment, validation-tag inheritance, and Optional semantics.
+  Deferred to v0.2 pending design work; tracked in TODO.md.
+  **Request-type specific** — embedded fields in *response* types are a
+  separate Part 2 question and are NOT covered by B5; do not extend it
+  there without a follow-up decision. (Added by the later 2026-05-17
+  amendment.)
 
 ### Category C — Things we intend to support later (DEFERRED)
 
@@ -128,6 +141,35 @@ must include the field's `file:line:col`, the field's qualified Go name
 - **E3.** A field with multiple goduct-relevant tags — HARD ERROR per
   [0014](0014-handler-signature-strictness.md) /
   [0016](0016-field-source-in-ir.md). Repeated here.
+
+### Cross-ADR field-level enforcement (non-letter categories)
+
+Categories with non-letter prefixes (`PATH1`, etc.) indicate Format B
+errors that enforce rules established in OTHER ADRs. The prefix identifies
+the originating ADR domain. These are NOT new type-traversal rules; they
+exist so that field-level enforcement of any ADR's rule has a consistent
+error format. Future cross-ADR enforcement at the field level should follow
+this naming convention rather than inventing new B-letters.
+
+Currently defined:
+
+- **PATH1** — [0014](0014-handler-signature-strictness.md): path params
+  cannot be pointer-typed.
+- **PATH2** — [0014](0014-handler-signature-strictness.md): a
+  path/query/header param has a non-primitive type (path/query/header must
+  be primitives; query/header may also be `[]primitive`).
+
+### Defensive catch-alls
+
+- **INTERNAL1** (HARD ERROR) — internal: unexpected type kind. A field has
+  a `*types.Type` kind that `fieldTypeRef` did not handle explicitly. This
+  indicates a bug in goduct, or a Go language feature goduct does not yet
+  recognize; the error includes the unmatched kind for debugging. Error
+  message: `"INTERNAL1: unsupported field type %s (kind %T) — this is
+  likely a goduct bug; please open an issue with the field declaration"`.
+  This category exists so defensive catch-alls don't proliferate as
+  unlabeled errors; if INTERNAL1 fires for a real user, add a proper
+  category and remove the case from the catch-all.
 
 ### Error message format (consistency requirement)
 

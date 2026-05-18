@@ -45,9 +45,10 @@ func ParseStructField(pkg *packages.Package, field *types.Var, tag reflect.Struc
 		return nil, nil // ADR 0018 D1
 	}
 	if field.Embedded() {
-		return nil, formatFieldErr(pkg, field, ctx, "X",
-			"embedded fields in request structs are not yet supported",
-			"flatten the embedded struct into named fields")
+		return nil, formatFieldErr(pkg, field, ctx, "B5",
+			"embedded fields in request structs are not yet supported (field "+
+				field.Name()+" in "+ctx.QualifiedName+") — extract to a named field with an explicit tag",
+			"extract the embedded struct into named fields")
 	}
 
 	src, wire, count, jsonName, jsonDash := classifyTag(tag)
@@ -76,12 +77,12 @@ func ParseStructField(pkg *packages.Package, field *types.Var, tag reflect.Struc
 	case "path", "query", "header":
 		ref, isPtr, ok := paramTypeRef(field.Type(), src != "path")
 		if !ok {
-			return nil, formatFieldErr(pkg, field, ctx, "X",
+			return nil, formatFieldErr(pkg, field, ctx, "PATH2",
 				src+" param has unsupported type "+types.TypeString(field.Type(), nil)+" in v0.1",
 				"path/query/header params must be primitives (query/header may be []primitive)")
 		}
 		if src == "path" && isPtr {
-			return nil, formatFieldErr(pkg, field, ctx, "X",
+			return nil, formatFieldErr(pkg, field, ctx, "PATH1",
 				"path param cannot be a pointer (path params are always present)",
 				"use a non-pointer field")
 		}

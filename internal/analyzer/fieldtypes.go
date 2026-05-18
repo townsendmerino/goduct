@@ -13,6 +13,7 @@ package analyzer
 //     the other's domain, not dead code.
 
 import (
+	"fmt"
 	"go/types"
 
 	"github.com/townsendmerino/goduct/internal/ir"
@@ -199,7 +200,8 @@ func fieldTypeRef(t types.Type) (ref ir.TypeRef, isPtr bool, err *typeErr) {
 			"anonymous struct fields are not supported in v0.1",
 			"extract the struct to a named type"}
 	}
-	return ir.TypeRef{}, isPtr, &typeErr{"X",
-		"unsupported field type " + types.TypeString(t, nil) + " in v0.1",
-		"use a wire-representable type"}
+	return ir.TypeRef{}, isPtr, &typeErr{"INTERNAL1",
+		fmt.Sprintf("unsupported field type %s (kind %T) — this is likely a goduct bug; "+
+			"please open an issue with the field declaration", types.TypeString(t, nil), t),
+		"open an issue with the field declaration"}
 }
