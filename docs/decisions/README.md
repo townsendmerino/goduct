@@ -66,3 +66,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0020](0020-body-field-optionality.md) | Body-field optionality | Accepted |
 | 0021 | _(number reserved, not used — originally a standalone "param type restrictions" ADR; rolled into the ADR 0014 amendment, commit `8b65ad5`)_ | Not used |
 | [0022](0022-generator-conventions.md) | Generator conventions | Accepted |
+| [0023](0023-godoc-to-jsdoc-transformation.md) | godoc → JSDoc transformation | Accepted |
