@@ -5,7 +5,7 @@
 Write Go HTTP handlers. Get a fully-typed TypeScript client. No protobuf, no OpenAPI YAML, no codegen rituals.
 
 ```bash
-go run github.com/townsendmerino/goduct/cmd/goduct gen ./api --out ./web/src/api
+go run github.com/townsendmerino/goduct/cmd/goduct gen ./api --out ./web/src/api --all
 ```
 
 That's it. Your frontend now knows your backend.
@@ -208,7 +208,7 @@ goduct ships a tiny error package that gives you typed errors on both sides.
 **Go:**
 
 ```go
-import "github.com/townsendmerino/goduct/runtime/goduct"
+import goduct "github.com/townsendmerino/goduct/runtime"
 
 return goduct.NotFound("user not found")
 return goduct.BadRequest("invalid email")
