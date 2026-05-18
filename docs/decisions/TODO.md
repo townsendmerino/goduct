@@ -61,3 +61,20 @@ for one three-line, branch-free switch arm).
 `isSpecialBuiltin`, or add the dep with a real-import integration test.
 **Risk: low** — the qualified-name switch is three lines with no
 branching. Known, named, bounded; fix when the cost is justified by use.
+
+## [ ] Named-alias-of-named collapses to a fresh TypeStruct
+
+`type A B` (where `B` is a struct) currently emits as a fresh
+`TypeStruct` with `B`'s resolved field set, not as `TypeAlias → B`.
+`types.Named.Underlying()` peels named chains, so the type traversal
+cannot syntactically distinguish `type A B` from
+`type A struct { ...same fields... }`. Wire shape and generator output
+are **identical** (encoding/json and the TS interface don't care); the
+only loss is **dedup** — if both `A` and `B` are referenced separately,
+generators emit two identical TS interfaces instead of `type A = B`.
+
+**Action:** not user-facing-broken; a polish concern that will bite with
+many aliases of one struct. Resolving needs distinguishing the syntactic
+alias from a re-declaration (token/AST-level analysis, since
+`Underlying()` doesn't preserve it). Investigate if it becomes a real
+pain point. Tracked, not blocking; no ADR needed.
