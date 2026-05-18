@@ -1,0 +1,7 @@
+# Personal, per-machine Claude Code settings (project-shared settings.json IS tracked)
+.claude/settings.local.json
+
+# Go build/test artifacts
+/bin/
+*.test
+*.out
