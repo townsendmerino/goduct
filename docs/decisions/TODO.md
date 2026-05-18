@@ -15,6 +15,19 @@ as rich/special types. [ADR 0017](0017-special-stdlib-types.md) also blesses
 table (and its explicit out-of-scope list) so the advertised feature set and
 the decisions agree. Pure docs change; no ADR needed.
 
+## [ ] README §--hooks documented as functional, but v0.1-deferred
+
+`README.md` → §`--hooks` shows React Query usage as if functional, but
+v0.1 ships `--hooks` as exit-2-deferred per
+[ADR 0008](0008-react-query-deferred-to-v02.md). The CLI does exactly
+what the prompt mandates (reject with a v0.2 pointer); the README is the
+stale artifact.
+
+**Action (pre-v0.1 release):** edit README §`--hooks` to clearly mark it
+as v0.2 — either remove the usage example or wrap it in a "Planned for
+v0.2" callout. Part of the README/TODO reconciliation milestone, with
+the ADR 0017 supported-types item above. Pure docs; no ADR needed.
+
 ## [ ] Normalize Format A error prefixes
 
 The A-vs-B harmonization question is **settled** by
@@ -140,16 +153,28 @@ path+query(+body) combined.
 both path and query params, OR explicitly accept the gap in the
 README's "What's supported" section. Accepted spec-trust for v0.1.
 
-## [ ] v0.2: add `ir.Route.RequestType`
+## [ ] v0.2: enrich the IR for Go-side codegen (RequestType + source dir)
 
-`ir.Route` has `BodyType` (wire body, nil for non-body routes) but no
-`RequestType` (the handler's second-param type, always present).
-goadapter works around this via the v0.1 naming convention in
-[ADR 0026](0026-goadapter-request-type-name-convention.md). v0.2: add
-`RequestType *TypeRef` to `ir.Route`, populated by `DiscoverRoutes`
-(which already has the handler signature), consumed by goadapter. The
-convention falls away; any handler may use any request type name.
-Additive, backward-compatible IR change.
+Two v0.1 workarounds share one root cause: `ir.API`/`ir.Route` don't
+carry enough position/identity info for Go-side code generation.
+
+1. **Request type.** `ir.Route` has `BodyType` (wire body, nil for
+   non-body routes) but no `RequestType` (the handler's second-param
+   type, always present). goadapter works around this via the v0.1
+   naming convention in
+   [ADR 0026](0026-goadapter-request-type-name-convention.md).
+2. **Source directory.** The Go adapter must be written into the
+   handlers' own package directory (ADR 0009), but nothing on `*ir.API`
+   exposes that path. `cmd/goduct/main.go` derives it by parsing
+   `Route.Pos` (`"file:line:col"`) — a string-peel workaround.
+
+**v0.2:** add `RequestType *TypeRef` to `ir.Route` (populated by
+`DiscoverRoutes`, which already has the handler signature) **and** a
+stable per-package source directory on `ir.API`. goadapter then reads
+the request type directly (the naming convention falls away — any
+handler may use any request-type name) and the CLI reads the source
+dir directly (the `Route.Pos` parse in main.go is deleted). One
+additive, backward-compatible IR change fixes both gaps.
 
 ## [ ] goadapter: custom status-code mapping incomplete
 
