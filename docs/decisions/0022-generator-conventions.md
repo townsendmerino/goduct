@@ -6,6 +6,9 @@
 golden); source string derived from `api` via `internal/gen.SourcePath`,
 not a CLI side channel. §9 added (emission eligibility,
 `internal/gen.EmitTS`); §6 lists `EmitTS` and `JSDoc` (see ADR 0023).
+§3: topo tiebreak is source declaration order (`TypeDef.Pos` (file,
+line)), top-level and within SCCs — not alphabetical (matches the
+frozen golden).
 
 ## Context
 
@@ -75,8 +78,19 @@ Specifically:
 
 - Routes are emitted in `ir.API.Routes` order (source order).
 - Types are emitted in a stable order derived from a topological sort of
-  the type dependency graph, with ties broken by qualified name.
-  Generators implement this sort once in a shared helper (see §6).
+  the type dependency graph. Generators implement this sort once in a
+  shared helper (see §6). Within each layer of the sort, ties are broken
+  by **source declaration order**: `TypeDef.Pos` is parsed as
+  `(file, line)` — files compared alphabetically, lines numerically (as
+  integers, never string-compared). The same rule applies within
+  strongly connected components (cycles): SCC members emit in source
+  order, not alphabetically. One rule everywhere.
+
+  Rationale: source order is what the chi-basic golden encodes and what
+  users naturally expect — types appear in generated output in the same
+  order they appear in their Go source. An alphabetical fallback would
+  have placed `CreateUserRequest` before `User` in the chi-basic output,
+  which is both surprising and inconsistent with the source.
 - Map iteration is never used to drive output order. Map lookups for
   individual values are fine; iteration order is not.
 
