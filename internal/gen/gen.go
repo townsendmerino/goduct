@@ -68,16 +68,33 @@ var jsdocCopula = map[string]bool{
 }
 
 // JSDoc transforms a raw godoc comment for a Go identifier named typeName
-// into a JSDoc-friendly summary (without the /** ... */ markers), or ""
-// if no JSDoc should be emitted. See ADR 0023 for the algorithm and its
-// known heuristic edges.
+// into a JSDoc-friendly *summary* (first sentence, via go/doc.Synopsis;
+// without the /** ... */ markers), or "" if no JSDoc should be emitted.
+// Used by tstypes. See ADR 0023.
 func JSDoc(typeName, rawDoc string) string {
 	raw := strings.TrimSpace(rawDoc)
 	if raw == "" {
 		return ""
 	}
-	syn := doc.Synopsis(raw) // first sentence; handles "v1.2" (ADR 0023)
-	toks := strings.Fields(syn)
+	return jsdocCore(typeName, doc.Synopsis(raw)) // first sentence; handles "v1.2"
+}
+
+// JSDocFull is like JSDoc but preserves all sentences (no Synopsis step).
+// Used by tsclient, where method docs are part of the API surface and
+// multi-sentence guidance must not be truncated. See ADR 0023/0024.
+func JSDocFull(typeName, rawDoc string) string {
+	raw := strings.TrimSpace(rawDoc)
+	if raw == "" {
+		return ""
+	}
+	return jsdocCore(typeName, raw)
+}
+
+// jsdocCore is the shared transform: strip a leading token equal to
+// typeName, strip a following copula, capitalize the first rune. text is
+// already trimmed (and, for JSDoc, already reduced to one sentence).
+func jsdocCore(typeName, text string) string {
+	toks := strings.Fields(text)
 	if len(toks) > 0 && toks[0] == typeName {
 		toks = toks[1:]
 	}

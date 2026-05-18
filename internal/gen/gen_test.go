@@ -118,3 +118,30 @@ func TestWireFields_UpdateUserRequest(t *testing.T) {
 		t.Errorf("WireFields GoNames = %q, want %q", got, "Name,Status")
 	}
 }
+
+func TestJSDoc_vs_JSDocFull(t *testing.T) {
+	// Single sentence: both variants identical; identifier+copula stripped.
+	const t1 = "User is the canonical user shape returned by the API."
+	if got := JSDoc("User", t1); got != "The canonical user shape returned by the API." {
+		t.Errorf("JSDoc = %q", got)
+	}
+	if got := JSDocFull("User", t1); got != "The canonical user shape returned by the API." {
+		t.Errorf("JSDocFull = %q", got)
+	}
+	// Multi-sentence: JSDoc truncates (Synopsis), JSDocFull preserves.
+	const t2 = "UpdateUser updates fields on an existing user. Omitted fields are not changed."
+	if got := JSDoc("UpdateUser", t2); got != "Updates fields on an existing user." {
+		t.Errorf("JSDoc (truncated) = %q", got)
+	}
+	if got := JSDocFull("UpdateUser", t2); got != "Updates fields on an existing user. Omitted fields are not changed." {
+		t.Errorf("JSDocFull (full) = %q", got)
+	}
+	// Handler-name identifier (not a copula word after it) — "returns" kept.
+	if got := JSDocFull("GetUser", "GetUser returns a single user by ID."); got != "Returns a single user by ID." {
+		t.Errorf("JSDocFull GetUser = %q", got)
+	}
+	// Empty → "".
+	if got := JSDocFull("X", "   "); got != "" {
+		t.Errorf("JSDocFull empty = %q", got)
+	}
+}
