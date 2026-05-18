@@ -150,3 +150,11 @@ goadapter works around this via the v0.1 naming convention in
 (which already has the handler signature), consumed by goadapter. The
 convention falls away; any handler may use any request type name.
 Additive, backward-compatible IR change.
+
+## [ ] goadapter: custom status-code mapping incomplete
+
+goadapter's `http.Status*` mapping covers 200/201/204 — the only codes
+the analyzer produces via ADR 0014's status defaults. A user explicit
+`goduct:status` (e.g. 418, 422) is not yet mapped. Pre-v0.1: either map
+the full `net/http` `Status*` constant set, or panic with a clear
+message naming the unknown code (ADR 0022 §5). Tracked.
