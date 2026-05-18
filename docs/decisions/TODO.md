@@ -78,3 +78,17 @@ many aliases of one struct. Resolving needs distinguishing the syntactic
 alias from a re-declaration (token/AST-level analysis, since
 `Underlying()` doesn't preserve it). Investigate if it becomes a real
 pain point. Tracked, not blocking; no ADR needed.
+
+## [ ] `Generate` signature drift: value vs pointer
+
+[ADR 0003](0003-generators-as-pipeline.md) and `README.md` state the
+generator entrypoint as `Generate(ir.API, io.Writer)` (value);
+[ADR 0022](0022-generator-conventions.md) §1 pins
+`Generate(*ir.API, io.Writer) error` (pointer). The pointer form is
+correct — it matches `Analyze`'s `*ir.API` return and avoids copying the
+IR. The contract is currently stated two ways.
+
+**Action (pre-v0.1):** reconcile the docs —
+- ADR 0003: amend the Decision text to the pointer form.
+- `README.md`: update any `Generate(...)` signature mentions.
+Pure docs; ADR 0022 §1 is authoritative in the meantime.
