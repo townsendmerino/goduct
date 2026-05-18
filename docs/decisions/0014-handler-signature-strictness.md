@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-05-17
+**Amended:** 2026-05-18 — pinned the path/query/header primitive type
+restriction (grounds ADR 0018 category PATH2)
 
 ## Context
 
@@ -23,6 +25,14 @@ declared in the same package as the handler (no cross-package
 request/response types in v0.1). The second form is only valid when the
 route's `goduct:status` is 204, OR when no status is declared AND the method
 is DELETE (in which case 204 is the default).
+
+**Path/query/header parameter type restrictions** (added 2026-05-18): Path
+parameters must be one of `string`, all `int` sizes, all `uint` sizes,
+`bool`, `float32`, `float64`. Pointer types and composite types are not
+permitted. Query and header parameters allow the same primitive set, plus
+`[]T` where `T` is one of those primitives. This is enforced at route
+discovery time per error category PATH2
+([0018](0018-type-traversal-failure-boundaries.md)).
 
 ## Consequences
 
