@@ -148,7 +148,7 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 
 	hasJSON, err := extractParams(pkg, reqNamed, &route)
 	if err != nil {
-		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)
+		return ir.Route{}, err // ParseStructField already returns ADR 0019 Format B
 	}
 
 	bodyAllowed := route.Method != "GET" && route.Method != "HEAD" && route.Method != "DELETE"
@@ -195,140 +195,45 @@ func resolveStatus(d Directives, method string, hasResponse bool, name string) (
 	return 200, nil
 }
 
+// extractParams fills route.PathParams/QueryParams/HeaderParams and reports
+// whether the request struct has any json (body) fields, using the shared
+// ParseStructField so route discovery and type traversal cannot disagree.
 func extractParams(pkg *packages.Package, req *types.Named, route *ir.Route) (hasJSON bool, err error) {
 	st := req.Underlying().(*types.Struct)
-	docs := fieldDocs(pkg, req)
+	ctx := StructContext{IsRequestType: true, QualifiedName: pkg.Types.Name() + "." + req.Obj().Name()}
 	for i := 0; i < st.NumFields(); i++ {
-		f := st.Field(i)
-		if f.Embedded() {
-			return false, fmt.Errorf("embedded fields in request structs are not yet supported "+
-				"(field %s in %s)", f.Name(), req.Obj().Name())
+		pf, e := ParseStructField(pkg, st.Field(i), reflect.StructTag(st.Tag(i)), ctx)
+		if e != nil {
+			return false, e
 		}
-		tag := reflect.StructTag(st.Tag(i))
-		kind, wire, n := soleTag(tag)
-		if n > 1 {
-			return false, fmt.Errorf("field %s has conflicting tags "+
-				"(path/query/header/json are mutually exclusive)", f.Name())
+		if pf == nil {
+			continue // skipped: unexported or json:"-" (ADR 0018 D1/D2)
 		}
-		if n == 0 {
-			continue // untagged: ignored bookkeeping field
-		}
-		if kind == "json" {
+		switch pf.Field.Source {
+		case ir.FieldSourceJSON:
 			hasJSON = true
-			continue
-		}
-		p, perr := buildParam(kind, wire, f, tag, docs[f.Name()])
-		if perr != nil {
-			return false, perr
-		}
-		switch kind {
-		case "path":
-			route.PathParams = append(route.PathParams, p)
-		case "query":
-			route.QueryParams = append(route.QueryParams, p)
-		case "header":
-			route.HeaderParams = append(route.HeaderParams, p)
+		case ir.FieldSourcePath:
+			route.PathParams = append(route.PathParams, toParam(pf))
+		case ir.FieldSourceQuery:
+			route.QueryParams = append(route.QueryParams, toParam(pf))
+		case ir.FieldSourceHeader:
+			route.HeaderParams = append(route.HeaderParams, toParam(pf))
 		}
 	}
 	return hasJSON, nil
 }
 
-func buildParam(kind, wire string, f *types.Var, tag reflect.StructTag, doc string) (ir.Param, error) {
-	rules := parseValidate(tag)
-	ref, isPtr, terr := typeRef(f.Type(), kind != "path")
-	if terr != nil {
-		return ir.Param{}, fmt.Errorf("%s param %s has unsupported type %s in v0.1",
-			kind, f.Name(), f.Type().String())
+// toParam adapts a ParsedField to the ir.Param shape route discovery uses.
+// WireName lives on ParsedField, not ir.Field.
+func toParam(pf *ParsedField) ir.Param {
+	return ir.Param{
+		GoName:     pf.Field.GoName,
+		WireName:   pf.WireName,
+		Type:       pf.Field.Type,
+		Optional:   pf.Field.Optional,
+		Validation: pf.Field.Validation,
+		Doc:        pf.Field.Doc,
 	}
-	if kind == "path" && isPtr {
-		return ir.Param{}, fmt.Errorf("path param %s cannot be a pointer "+
-			"(path params are always present)", f.Name())
-	}
-	p := ir.Param{GoName: f.Name(), WireName: wire, Type: ref, Validation: rules, Doc: doc}
-	if kind == "path" {
-		p.Optional = false
-	} else {
-		p.Optional = !hasRule(rules, "required")
-	}
-	return p, nil
-}
-
-// soleTag returns the single source tag (path/query/header/json) and how
-// many of those four are present (for the mutual-exclusion check).
-func soleTag(tag reflect.StructTag) (kind, wire string, n int) {
-	for _, k := range [...]string{"path", "query", "header", "json"} {
-		if v, ok := tag.Lookup(k); ok {
-			n++
-			kind, wire = k, strings.Split(v, ",")[0]
-		}
-	}
-	return kind, wire, n
-}
-
-// typeRef builds an ir.TypeRef for a param field. Pointers are unwrapped
-// (reporting isPtr). path allows primitives only; query/header also allow
-// []primitive (allowSlice).
-func typeRef(t types.Type, allowSlice bool) (ref ir.TypeRef, isPtr bool, err error) {
-	if p, ok := t.(*types.Pointer); ok {
-		isPtr, t = true, p.Elem()
-	}
-	if b, ok := t.Underlying().(*types.Basic); ok {
-		if n, ok := basicName(b); ok {
-			return ir.TypeRef{Kind: ir.KindBuiltin, Builtin: n}, isPtr, nil
-		}
-	}
-	if s, ok := t.Underlying().(*types.Slice); ok && allowSlice {
-		if b, ok := s.Elem().Underlying().(*types.Basic); ok {
-			if n, ok := basicName(b); ok {
-				el := ir.TypeRef{Kind: ir.KindBuiltin, Builtin: n}
-				return ir.TypeRef{Kind: ir.KindSlice, Element: &el}, isPtr, nil
-			}
-		}
-	}
-	return ir.TypeRef{}, isPtr, fmt.Errorf("unsupported")
-}
-
-func basicName(b *types.Basic) (string, bool) {
-	switch b.Kind() {
-	case types.Bool:
-		return "bool", true
-	case types.String:
-		return "string", true
-	case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
-		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64,
-		types.Float32, types.Float64:
-		return b.Name(), true
-	}
-	return "", false
-}
-
-func parseValidate(tag reflect.StructTag) []ir.ValidationRule {
-	v, ok := tag.Lookup("validate")
-	if !ok || v == "" {
-		return nil
-	}
-	var rules []ir.ValidationRule
-	for _, part := range strings.Split(v, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		if name, arg, found := strings.Cut(part, "="); found {
-			rules = append(rules, ir.ValidationRule{Name: name, Arg: arg})
-		} else {
-			rules = append(rules, ir.ValidationRule{Name: part})
-		}
-	}
-	return rules
-}
-
-func hasRule(rules []ir.ValidationRule, name string) bool {
-	for _, r := range rules {
-		if r.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // checkPathParams enforces that every {name}/:name segment in the route
@@ -391,35 +296,4 @@ func namedStruct(t types.Type) (*types.Named, bool) {
 		return nil, false
 	}
 	return n, true
-}
-
-// fieldDocs maps request-struct field name → godoc, best-effort from the
-// AST (go/types carries no doc comments).
-func fieldDocs(pkg *packages.Package, n *types.Named) map[string]string {
-	out := map[string]string{}
-	for _, file := range pkg.Syntax {
-		for _, decl := range file.Decls {
-			gd, ok := decl.(*ast.GenDecl)
-			if !ok {
-				continue
-			}
-			for _, spec := range gd.Specs {
-				ts, ok := spec.(*ast.TypeSpec)
-				if !ok || ts.Name.Name != n.Obj().Name() {
-					continue
-				}
-				stype, ok := ts.Type.(*ast.StructType)
-				if !ok {
-					continue
-				}
-				for _, fld := range stype.Fields.List {
-					d := strings.TrimSpace(fld.Doc.Text())
-					for _, id := range fld.Names {
-						out[id.Name] = d
-					}
-				}
-			}
-		}
-	}
-	return out
 }
