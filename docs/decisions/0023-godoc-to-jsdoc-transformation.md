@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-05-18
+**Amended:** 2026-05-18 — two variants: `JSDoc` (first-sentence, for
+tstypes) and `JSDocFull` (all sentences, for tsclient)
 
 ## Context
 
@@ -86,6 +88,22 @@ identifier but leaves the rest unchanged — degraded but not broken.
   handles correctly.
 - Punt entirely (emit raw godoc) — rejected; the golden requires the
   transformation, and unstripped identifiers in JSDoc read badly.
+
+## Amendment — two variants (2026-05-18)
+
+`internal/gen` defines two helpers:
+
+- `JSDoc(typeName, rawDoc)` — extracts the first sentence via
+  `go/doc.Synopsis`. Used where the JSDoc serves as a *summary* (type
+  declarations in tstypes).
+- `JSDocFull(typeName, rawDoc)` — preserves all sentences. Used where
+  the JSDoc serves as an *API surface* (client methods in tsclient,
+  where multi-sentence guidance is common and must not be truncated).
+
+Both apply the same identifier-strip, copula-strip, and
+capitalize-first-rune transformations; they differ only in the
+sentencing step. Choice of variant is a per-generator decision per
+[0024](0024-doc-comment-emission-policy.md).
 
 ## Cross-references
 

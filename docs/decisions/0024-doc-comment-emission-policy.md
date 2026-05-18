@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-05-18
+**Amended:** 2026-05-18 — tsclient uses `internal/gen.JSDocFull`
+(non-truncating), not `JSDoc`; client method docs keep all sentences
 
 ## Context
 
@@ -31,10 +33,12 @@ Per-generator emission policy for doc comments:
   it in `schemas.ts` adds noise without value. The chi-basic golden's
   `schemas.ts` has zero comments.
 - **tsclient:** emit JSDoc on every method. Method-level `Route.Doc` is
-  transformed via `internal/gen.JSDoc` with the handler name as the
-  identifier-strip target. No JSDoc at the tag-group level. (To be
-  verified against the `client.ts` golden when the tsclient milestone
-  lands; the chi-basic golden suggests method-only.)
+  transformed via `internal/gen.JSDocFull` (the non-truncating variant),
+  with the handler name as the identifier-strip target. The full text is
+  preserved because client method docs are part of the API surface and
+  multi-sentence guidance is common (verified against the `client.ts`
+  golden: `UpdateUser`'s two-sentence doc is kept in full). No JSDoc at
+  the tag-group level.
 - **goadapter (Go):** emit raw godoc unchanged on generated registration
   functions. Go has its own godoc convention; JSDoc transformation
   doesn't apply. The chi-basic adapter golden does NOT preserve handler
