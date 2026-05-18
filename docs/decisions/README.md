@@ -69,3 +69,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0023](0023-godoc-to-jsdoc-transformation.md) | godoc → JSDoc transformation | Accepted |
 | [0024](0024-doc-comment-emission-policy.md) | Per-generator doc-comment emission policy | Accepted |
 | [0025](0025-correct-stale-golden-for-list-users.md) | Correct the stale client.ts golden for ADR 0015 | Accepted |
+| [0026](0026-goadapter-request-type-name-convention.md) | goadapter request-type-name convention (v0.1) | Accepted |
