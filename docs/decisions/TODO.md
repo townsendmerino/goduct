@@ -139,3 +139,14 @@ path+query(+body) combined.
 **Action (pre-v0.1):** add a coverage example exercising a route with
 both path and query params, OR explicitly accept the gap in the
 README's "What's supported" section. Accepted spec-trust for v0.1.
+
+## [ ] v0.2: add `ir.Route.RequestType`
+
+`ir.Route` has `BodyType` (wire body, nil for non-body routes) but no
+`RequestType` (the handler's second-param type, always present).
+goadapter works around this via the v0.1 naming convention in
+[ADR 0026](0026-goadapter-request-type-name-convention.md). v0.2: add
+`RequestType *TypeRef` to `ir.Route`, populated by `DiscoverRoutes`
+(which already has the handler signature), consumed by goadapter. The
+convention falls away; any handler may use any request type name.
+Additive, backward-compatible IR change.
