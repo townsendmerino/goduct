@@ -64,4 +64,5 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0018](0018-type-traversal-failure-boundaries.md) | Type-traversal failure boundaries | Accepted |
 | [0019](0019-error-message-formats-by-layer.md) | Error message formats by layer | Accepted |
 | [0020](0020-body-field-optionality.md) | Body-field optionality | Accepted |
+| 0021 | _(number reserved, not used — originally a standalone "param type restrictions" ADR; rolled into the ADR 0014 amendment, commit `8b65ad5`)_ | Not used |
 | [0022](0022-generator-conventions.md) | Generator conventions | Accepted |
