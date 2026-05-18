@@ -47,3 +47,17 @@ before switching, after pointer unwrap).
 `structfields.go` and any future type-walking code (notably the Part 2
 traversal). Pattern: call `types.Unalias(t)` before switching on kind.
 Pure code-hygiene sweep; no ADR needed.
+
+## [ ] `uuid.UUID` detection has no real-import test
+
+`isSpecialBuiltin`'s `github.com/google/uuid.UUID` arm
+(`structfields.go`/`fieldtypes.go`) is exercised only by the
+qualified-name unit dispatch, not by a real `github.com/google/uuid`
+import. The dep was deliberately not added (not worth the bloat/precedent
+for one three-line, branch-free switch arm).
+
+**Action (pre-v0.1):** either synthesize a `*types.Named` in a unit test
+(fake `Pkg` with path `github.com/google/uuid`, name `UUID`) and assert
+`isSpecialBuiltin`, or add the dep with a real-import integration test.
+**Risk: low** — the qualified-name switch is three lines with no
+branching. Known, named, bounded; fix when the cost is justified by use.
