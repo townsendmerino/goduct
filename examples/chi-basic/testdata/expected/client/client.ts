@@ -83,7 +83,7 @@ export function createClient(opts: ClientOptions) {
       },
 
       /** Returns a page of users. */
-      list: async (params: { limit: number; cursor?: string }): Promise<t.ListUsersResponse> => {
+      list: async (params: { limit?: number; cursor?: string }): Promise<t.ListUsersResponse> => {
         const data = await request(opts, {
           method: "GET",
           path: `/users`,
