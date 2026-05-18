@@ -115,3 +115,14 @@ not byte-verified:
 chi-basic) that exercises these, OR explicitly accept the v0.1 risk in
 the README's "What's supported" section. Accepted as spec-trust for the
 v0.1 ship; this keeps the gap visible.
+
+## [ ] Generators: panic-on-unknown-builtin is a required shared pattern
+
+All generators panic on an unknown `ir.TypeRef` builtin or unhandled
+`Kind`. Pattern established by `tstypes.tsType` and `zod.zodExpr`;
+intentional per ADR 0022 §5 (internal-invariant violation = loud
+failure). When tsclient and goadapter implement their target-language
+type-string functions, they MUST replicate the same pattern: panic with
+a message naming the unhandled value, so an analyzer/IR bug surfaces
+immediately rather than propagating into output. This is a pattern note,
+not a decision; the underlying decision is ADR 0022 §5.
