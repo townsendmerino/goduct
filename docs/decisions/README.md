@@ -62,3 +62,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0016](0016-field-source-in-ir.md) | Field source in the IR | Accepted |
 | [0017](0017-special-stdlib-types.md) | Special standard-library (and well-known) types | Accepted |
 | [0018](0018-type-traversal-failure-boundaries.md) | Type-traversal failure boundaries | Accepted |
+| [0019](0019-error-message-formats-by-layer.md) | Error message formats by layer | Accepted |

@@ -15,25 +15,22 @@ as rich/special types. [ADR 0017](0017-special-stdlib-types.md) also blesses
 table (and its explicit out-of-scope list) so the advertised feature set and
 the decisions agree. Pure docs change; no ADR needed.
 
-## [ ] Analyzer error-message format harmonization
+## [ ] Normalize Format A error prefixes
 
-Two error formats currently coexist in the analyzer:
+The A-vs-B harmonization question is **settled** by
+[ADR 0019](0019-error-message-formats-by-layer.md): two formats by layer
+(Format A single-line for whole-construct errors; Format B 3-line
+categorized for field errors), divergence accepted by design. One residual
+remains — not every Format A emitter matches the template byte-for-byte:
 
-- **Route discovery** (`internal/analyzer/routes.go`) emits a single line:
-  `goduct: <file>:<line>:<col>: <message>`.
-- **Type traversal** ([ADR 0018](0018-type-traversal-failure-boundaries.md))
-  mandates a three-line form:
-  `goduct: <file>:<line>:<col>: <category-id>: <description>` /
-  `in <qualified-field-name> (<Go-type>)` / `hint: <one-line remediation>`.
+- `annotations.go` currently emits: `goduct: <msg> (line N): <src>`
+- `loader.go` currently emits: `<pkgpath>: [<kind>] <file:line:col>: <msg>`
+- ADR 0019 establishes the Format A template as:
+  `goduct: <file>:<line>:<col>: <msg>`
+- Route discovery (`internal/analyzer/routes.go`) already matches it.
 
-**Decision to make (then reconcile docs):** either
-
-1. **Harmonize** — backport the category-id + `in …` + `hint:` shape to
-   route-discovery errors so the whole analyzer speaks one format
-   (route-discovery cases would need category IDs assigned), **or**
-2. **Accept the divergence** — keep route discovery single-line and document
-   that the richer format is type-traversal-specific.
-
-Whichever is chosen, record it in an ADR and update any ADR/prompt text that
-implies a single consistent format. Do this before v0.1 so error UX is
-settled, not retrofitted after users see it.
+**Decision (per ADR 0019, still open):** for v0.1, either keep the two
+layers' existing prefixes as-is (they are Format-A *category*, just not
+byte-identical), **or** normalize them to the template. Pre-v0.1 release
+work; if normalized it is a code change — record the choice in ADR 0019's
+Implementation note (or a short follow-up ADR).
