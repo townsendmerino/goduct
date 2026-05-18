@@ -274,7 +274,7 @@ Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, cus
 4. Each generator consumes the IR and emits one file. Generators don't talk to each other.
 5. Output is gofmt'd / prettier'd before writing.
 
-The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift client), implement one function: `Generate(ir.API, io.Writer) error`.
+The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift client), implement one function: `Generate(*ir.API, io.Writer) error`.
 
 ---
 
