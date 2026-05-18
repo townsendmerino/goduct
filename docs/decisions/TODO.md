@@ -158,3 +158,14 @@ the analyzer produces via ADR 0014's status defaults. A user explicit
 `goduct:status` (e.g. 418, 422) is not yet mapped. Pre-v0.1: either map
 the full `net/http` `Status*` constant set, or panic with a clear
 message naming the unknown code (ADR 0022 §5). Tracked.
+
+## [ ] goadapter bool/float query-param conversion is spec-trust
+
+goadapter implements bool/float query-param conversion per spec
+(`strconv.ParseBool`, `strconv.ParseFloat(v, 64)`, messages
+`"<wire> must be a boolean"` / `"<wire> must be a number"`) but the
+chi-basic golden exercises only `int` (ListUsers.Limit via
+`strconv.Atoi`). Pre-v0.1: add a coverage example exercising bool and
+float query params, OR explicitly accept the v0.1 risk in the README.
+Spec-trust, same shape as zod's unexercised paths and tsclient's
+path+query merge.
