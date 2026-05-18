@@ -2,6 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-05-17
+**Amended:** 2026-05-17 — added categories B4 (hard error) and D5 (silently allowed)
 
 ## Context
 
@@ -60,6 +61,13 @@ must include the field's `file:line:col`, the field's qualified Go name
   struct to a named type". Rationale: anonymous structs have no name to use
   in TS, and naming-by-path (`UserAddress` for `User.Address`) leaks parent
   context into nested type names in confusing ways.
+- **B4.** Named type with an unrepresentable underlying — a named type
+  whose underlying is a function, channel, interface, `unsafe.Pointer`,
+  `uintptr`, or complex. Error message:
+  `"B4: named type %s has unrepresentable underlying %s"`. This is the
+  union of A1–A5/B2 applied at the named-type level; it exists as a
+  separate category for grep-ability when users see a confusing alias error
+  vs. a direct-field error. (Added by the 2026-05-17 amendment.)
 
 ### Category C — Things we intend to support later (DEFERRED)
 
@@ -100,6 +108,13 @@ must include the field's `file:line:col`, the field's qualified Go name
   `TypeDef`. Cycles in Go struct graphs are legal (linked-list nodes, tree
   nodes) and must work. This is a correctness rule, not a failure rule, but
   belongs here so the milestone prompt doesn't reinvent it.
+- **D5.** A named type whose underlying is `[]T` or `map[K]V` where `T`,
+  `K`, `V` are each independently supported (and `K` is a string or
+  string-aliased key per B1) — produces an `ir.TypeDef` of kind
+  `TypeAlias` with `AliasTo` set to the unwrapped slice/map `TypeRef`. This
+  is the same `TypeAlias` case as a basic underlying, just with a composite
+  `AliasTo`; `type Tags []string` and `type Headers map[string]string` are
+  common and must pass. (Added by the 2026-05-17 amendment.)
 
 ### Category E — Special validation
 
