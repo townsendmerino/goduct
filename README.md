@@ -113,9 +113,9 @@ npm install zod
 
 ## The handler convention
 
-goduct supports two handler styles. Pick whichever fits your codebase.
+v0.1 supports the **idiomatic** handler style below. A second style — raw `http.HandlerFunc` with annotations — is _planned for v0.2_ ([ADR 0001](docs/decisions/0001-handler-signature-convention.md) / [ADR 0014](docs/decisions/0014-handler-signature-strictness.md)); it is documented here so the planned shape is visible, but the v0.1 analyzer does not yet discover it.
 
-### Idiomatic (recommended)
+### Idiomatic (the v0.1 style)
 
 A typed function with a fixed signature. goduct infers everything from the types.
 
@@ -135,9 +135,9 @@ Request struct fields are sourced from tags:
 
 Validation tags use [go-playground/validator](https://github.com/go-playground/validator) syntax and are translated to zod where possible.
 
-### Raw `http.HandlerFunc`
+### Raw `http.HandlerFunc` _(planned for v0.2 — not available in v0.1)_
 
-For existing code or finer control, annotate a standard handler:
+For existing code or finer control, the planned v0.2 mode annotates a standard handler:
 
 ```go
 // goduct:route    GET /users/:id
@@ -152,7 +152,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-goduct can't verify these annotations match the handler's behavior, so use this mode when you need it, not as the default.
+In v0.2, goduct won't be able to verify these annotations match the handler's behavior, so this mode is intended for when you need it, not as the default.
 
 ---
 
