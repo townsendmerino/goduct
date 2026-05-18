@@ -126,3 +126,16 @@ type-string functions, they MUST replicate the same pattern: panic with
 a message naming the unhandled value, so an analyzer/IR bug surfaces
 immediately rather than propagating into output. This is a pattern note,
 not a decision; the underlying decision is ADR 0022 §5.
+
+## [ ] tsclient: path+query argument-merge form is spec-trust
+
+chi-basic has no route with BOTH path AND query params, so the merge
+form is unverified by golden. tsclient implements path+query merged into
+one `params` object (path members then query members, joined by `; `;
+path required, query per `Param.Optional`). Exercised by the golden:
+path-only, query-only, body-only, path+body, error-only — but NOT
+path+query(+body) combined.
+
+**Action (pre-v0.1):** add a coverage example exercising a route with
+both path and query params, OR explicitly accept the gap in the
+README's "What's supported" section. Accepted spec-trust for v0.1.
