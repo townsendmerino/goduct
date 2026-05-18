@@ -162,14 +162,13 @@ Each generator is opt-in. Use what you need.
 
 ```bash
 goduct gen ./api --out ./web/src/api \
-  --types         \   # types.ts        (TS interfaces + types)
-  --zod           \   # schemas.ts      (zod schemas for runtime validation)
-  --client        \   # client.ts       (fetch-based, typed)
-  --hooks         \   # hooks.ts        (React Query hooks)
-  --go-adapter        # api/goduct_routes.go (chi wiring)
+  --types      \   # types.ts             (TS interfaces + types)
+  --zod        \   # schemas.ts           (zod schemas for runtime validation)
+  --client     \   # client.ts            (fetch-based, typed)
+  --go-adapter     # api/goduct_routes.go (chi wiring, written beside your source)
 ```
 
-Or just `--all`.
+Or just `--all`. (`--hooks` / React Query hooks — _planned for v0.2_, [ADR 0008](docs/decisions/0008-react-query-deferred-to-v02.md); passing `--hooks` to v0.1 exits with a pointer to v0.2.)
 
 ### `--types`
 Plain TypeScript types. No runtime dependencies. Smallest output.
@@ -187,8 +186,8 @@ api.users.create({ email, name })
 api.posts.list()
 ```
 
-### `--hooks`
-React Query hooks for every endpoint:
+### `--hooks` _(planned for v0.2 — not available in v0.1)_
+Per [ADR 0008](docs/decisions/0008-react-query-deferred-to-v02.md), React Query hooks are deferred so v0.1's frontend output stays UI-framework-agnostic. The planned shape:
 
 ```typescript
 const { data, isLoading } = useGetUser({ id });
@@ -295,9 +294,9 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 ## Roadmap
 
-**v0.1** (this release) — chi, idiomatic handlers, types + zod + fetch + hooks + go-adapter, basic validation, typed errors.
+**v0.1** (this release) — chi, idiomatic handlers, types + zod + typed fetch client + go-adapter, basic validation, typed errors.
 
-**v0.2** — Raw `http.HandlerFunc` mode, gin support, generics, custom type adapters (e.g. `decimal.Decimal` → `string`), `--watch` mode.
+**v0.2** — Raw `http.HandlerFunc` mode, React Query hooks (`--hooks`), gin + echo + std `net/http` mux, the `oneof` validator, generics, custom type adapters (e.g. `decimal.Decimal` → `string`), `--watch` mode.
 
 **v0.3** — OpenAPI 3.1 export, Swagger UI generator, Postman collection export.
 
