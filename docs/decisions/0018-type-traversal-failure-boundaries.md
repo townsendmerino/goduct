@@ -64,8 +64,8 @@ must include the field's `file:line:col`, the field's qualified Go name
 ### Category C — Things we intend to support later (DEFERRED)
 
 - **C1.** Generic type instantiation in a field's type — "`Response[T]` et
-  al. are deferred to v0.2 per [0001](0001-handler-signature-convention.md)'s
-  roadmap; use a concrete type for now". Detection: the field's
+  al. are deferred to v0.2 per the project roadmap (`README.md`); use a
+  concrete type for now". Detection: the field's
   `*types.Type` is a `*types.Named` whose `TypeArgs()` returns
   non-nil/non-empty.
 - **C2.** Cross-package types not in [0017](0017-special-stdlib-types.md)'s

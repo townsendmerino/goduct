@@ -61,8 +61,8 @@ their output's idioms.
 - The "`json.Marshaler`-aware" rabbit hole (detecting any type with a
   `MarshalJSON` method and asking the user to declare its wire shape) is
   explicitly out of scope. v0.2 may revisit;
-  [0014](0014-handler-signature-strictness.md) already covers cross-package
-  types as deferred.
+  [0014](0014-handler-signature-strictness.md) already defers cross-package
+  request/response types.
 - `decimal.Decimal`, `civil.Date`, `big.Int`, `big.Float`,
   `net/mail.Address`, `net/url.URL`, `language.Tag` — all out of scope for
   v0.1. Users who need these wrap them in a string field and convert at the
