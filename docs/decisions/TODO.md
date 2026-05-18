@@ -92,3 +92,26 @@ IR. The contract is currently stated two ways.
 - ADR 0003: amend the Decision text to the pointer form.
 - `README.md`: update any `Generate(...)` signature mentions.
 Pure docs; ADR 0022 §1 is authoritative in the meantime.
+
+## [ ] zod generator: 7 code paths are spec-only, not golden-verified
+
+The chi-basic `schemas.ts` golden does not exercise these zod paths;
+they are implemented per the Prompt 9 table + ADR 0017 (spec-trust),
+not byte-verified:
+
+1. Multi-validator chain ordering (implemented source-order; golden has
+   no field with ≥2 effective validators).
+2. `oneof` translation — deferred entirely (unreachable in v0.1).
+3. `url` / `len` validators (never exercised).
+4. `uint` builtin rendering → `z.number().int().nonnegative()`
+   (no uint field emitted).
+5. `int` builtins on wire-visible fields (none; `Limit` is filtered out
+   by `EmitTS`).
+6. Int-enum form `z.union([z.literal(...)])` (chi-basic has only a
+   string enum).
+7. `TypeAlias` and D5 slice/map-alias paths (none in the emitted set).
+
+**Action (pre-v0.1):** add an `examples/coverage/` example (or extend
+chi-basic) that exercises these, OR explicitly accept the v0.1 risk in
+the README's "What's supported" section. Accepted as spec-trust for the
+v0.1 ship; this keeps the gap visible.
