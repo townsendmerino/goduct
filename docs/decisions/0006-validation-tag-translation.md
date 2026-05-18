@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-05-17
+**Amended:** 2026-05-18 — Consequences: `oneof` partial-implementation
+empirical finding (milestone 14). Decision unchanged.
 
 ## Context
 
@@ -32,6 +34,27 @@ intended to still run server-side via validator. v0.1.
 - The v0.1 golden adapter (`expected/go/goduct_routes.go`) does not currently
   invoke the validator, so "still run server-side" is the intended behavior
   but is not yet reflected in golden output — TBD — discuss.
+
+### Empirical finding (post-implementation, milestone 14)
+
+The v0.1 implementation translates `required` (as a no-op; presence
+handled via `.optional()`), `email`, `url`, `min`, `max`, and `len`. The
+`oneof` translation specified in the Decision section was not implemented:
+`oneof` tags on validated fields are silently ignored by the zod generator
+and pass through unaffected.
+
+This is a partial implementation, not a reversal of the decision. The
+decision to support `oneof` stands; implementation is deferred to v0.2.
+The README's "What's supported" section accurately describes shipped
+reality (`oneof` listed as deferred); the Decision section above describes
+the full v0.1 design intent and is preserved for the historical record.
+
+Rationale for deferral: chi-basic exercises no `oneof` tags (the
+`UserStatus` enum is its own `TypeEnum`, not a string field with `oneof`),
+so the `oneof` path was never golden-tested. Shipping it untested under
+the loud-failure principle ([0007](0007-loud-failure-on-unsupported-input.md))
+felt worse than explicitly deferring it. v0.2 will implement and
+golden-test.
 
 ## Alternatives considered
 
