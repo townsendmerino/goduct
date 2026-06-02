@@ -101,7 +101,7 @@ func TestEndToEnd_ChiBasic(t *testing.T) {
 		{filepath.Join(outDir, "schemas.ts"), exp("client/schemas.ts")},
 		{filepath.Join(outDir, "client.ts"), exp("client/client.ts")},
 		{filepath.Join(outDir, "hooks.ts"), exp("client/hooks.ts")},
-		{adapter, exp("go/goduct_routes.go")},
+		{adapter, exp("chi/goduct_routes.go")},
 	}
 
 	// 4. All five exist (the beside-source adapter included).

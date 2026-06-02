@@ -59,7 +59,7 @@ func TestGenerate_Golden(t *testing.T) {
 		t.Fatalf("Generate: %v", err)
 	}
 	want, err := os.ReadFile(filepath.Join(root,
-		"examples/chi-basic/testdata/expected/go/goduct_routes.go"))
+		"examples/chi-basic/testdata/expected/chi/goduct_routes.go"))
 	if err != nil {
 		t.Fatalf("read golden: %v", err)
 	}
@@ -113,24 +113,28 @@ func TestMethodPascal(t *testing.T) {
 }
 
 func TestQueryAssign(t *testing.T) {
+	// Use the chi framework — queryAssign's per-framework variation is
+	// only in the writerExpr that appears in error-paths; the rule
+	// substrings are framework-independent.
+	fw := frameworks["chi"]
 	mk := func(b string) ir.Param {
 		return ir.Param{GoName: "Limit", WireName: "limit",
 			Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: b}}
 	}
 	str := ir.Param{GoName: "Cursor", WireName: "cursor",
 		Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}
-	if got := queryAssign(str); got != "\treq.Cursor = q.Get(\"cursor\")\n" {
+	if got := queryAssign(fw, str); got != "\treq.Cursor = q.Get(\"cursor\")\n" {
 		t.Errorf("string: %q", got)
 	}
-	if got := queryAssign(mk("int")); !strings.Contains(got, "strconv.Atoi(v)") ||
+	if got := queryAssign(fw, mk("int")); !strings.Contains(got, "strconv.Atoi(v)") ||
 		!strings.Contains(got, `"limit must be an integer"`) {
 		t.Errorf("int: %q", got)
 	}
-	if got := queryAssign(mk("bool")); !strings.Contains(got, "strconv.ParseBool(v)") ||
+	if got := queryAssign(fw, mk("bool")); !strings.Contains(got, "strconv.ParseBool(v)") ||
 		!strings.Contains(got, `"limit must be a boolean"`) {
 		t.Errorf("bool: %q", got)
 	}
-	if got := queryAssign(mk("float64")); !strings.Contains(got, "strconv.ParseFloat(v, 64)") ||
+	if got := queryAssign(fw, mk("float64")); !strings.Contains(got, "strconv.ParseFloat(v, 64)") ||
 		!strings.Contains(got, `"limit must be a number"`) {
 		t.Errorf("float: %q", got)
 	}
