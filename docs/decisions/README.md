@@ -79,3 +79,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0033](0033-generics.md) | Generics in request/response types (v0.3) | Accepted |
 | [0034](0034-openapi-export.md) | OpenAPI 3.1 export (v0.3) | Accepted |
 | [0035](0035-openapi-sibling-generators.md) | Swagger UI + Postman collection generators (v0.3) | Accepted |
+| [0036](0036-constraint-generics.md) | Constraint generics (v0.4) | Accepted |
