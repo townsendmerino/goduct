@@ -149,6 +149,80 @@ limit.
 require TS-side renaming of literal unions per instantiation; generic
 aliases need factory-style emission in both tstypes and zod.
 
+## [ ] OpenAPI: Swagger UI generator
+
+[ADR 0034](0034-openapi-export.md) ships the OpenAPI 3.1 spec
+(`--openapi` -> `openapi.json`). Swagger UI is a small static-HTML
+generator that points at the JSON doc — natural follow-up sibling.
+
+**Trigger / action (v0.3 remainder):** add `--swagger-ui` flag that
+writes a one-file `swagger-ui.html` referencing `./openapi.json` via
+the standard Swagger UI dist (CDN-loaded so no bundled JS bytes).
+Per-route example responses out of scope for v0.3.
+
+## [ ] OpenAPI: Postman collection export
+
+Postman collection v2.1 JSON is a sibling of OpenAPI — most fields
+map directly. Most users will instead import OpenAPI into Postman
+(it speaks the spec); a direct Postman collection generator is for
+teams that want the collection committed in their repo.
+
+**Trigger / action (v0.3 remainder):** add `--postman` flag that
+writes `postman_collection.json`. Map routes 1:1 with example
+request bodies derived from the IR type's required fields.
+
+## [ ] OpenAPI: info enrichment flags
+
+[ADR 0034](0034-openapi-export.md) §2 hardcodes `info.title` to the
+package name and `info.version` to `"0.0.0"`. Real projects want
+their own title, version, description, license, contact.
+
+**Trigger / action (v0.4 polish):** add `--openapi-title`,
+`--openapi-version`, `--openapi-description`, `--openapi-contact`,
+`--openapi-license`. Or a project-root `goduct.toml` (would also
+host the `--adapter` follow-up — both are essentially "project
+metadata").
+
+## [ ] OpenAPI: security schemes
+
+[ADR 0034](0034-openapi-export.md) §10 defers `securitySchemes`. A
+project with auth needs to declare Bearer / API key / OAuth2 in the
+spec; goduct currently emits no security info.
+
+**Trigger / action (v0.4):** scan handler doc / a `goduct:security`
+directive / a flag-driven default for global security. The simplest
+v0.4 entry is a global `--openapi-security bearer` flag that emits
+a bearer-token requirement on every operation. More fine-grained is
+future work.
+
+## [ ] OpenAPI: per-status-code responses
+
+[ADR 0034](0034-openapi-export.md) §10 emits only the success status
++ a synthesized `default` (GoductError). Handlers that explicitly
+return `404`/`409`/etc. via `goduct.NotFound` aren't documented
+per-status.
+
+**Trigger / action (v0.4 polish):** static-walk handler bodies for
+`goduct.<Code>` calls, OR add `goduct:errors 404 409` directive
+syntax. The static walk is the more user-invisible path.
+
+## [ ] OpenAPI: YAML output
+
+[ADR 0034](0034-openapi-export.md) §1 emits JSON only to avoid a
+YAML dep. A `--openapi-format yaml` flag would close this if users
+ask. Workaround for now: `yq -P openapi.json > openapi.yaml`.
+
+## [ ] OpenAPI: user-defined `GoductError` collision
+
+[ADR 0034](0034-openapi-export.md) §7 synthesizes a `GoductError`
+component. A user-defined type named `GoductError` in their package
+collides at component-name level. Map-key last-write-wins lets one
+of them win arbitrarily.
+
+**Trigger / action:** rename the synthesized component if the
+user's collides, OR refuse to emit and require the user to rename
+theirs. v0.4-or-when-it-bites.
+
 ## [ ] goadapter: custom status-code mapping incomplete
 
 goadapter's `http.Status*` mapping covers 200/201/204 — the only codes

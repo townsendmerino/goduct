@@ -168,6 +168,7 @@ goduct gen ./api --out ./web/src/api \
   --client     \   # client.ts            (fetch-based, typed)
   --hooks      \   # hooks.ts             (React Query hooks; peer dep
                    #                       @tanstack/react-query v5)
+  --openapi    \   # openapi.json         (OpenAPI 3.1 spec)
   --go-adapter     # api/goduct_routes.go (chi wiring, written beside your source)
 ```
 
@@ -211,6 +212,11 @@ await createUser.mutateAsync({ email: "foo@bar.com", name: "Frank" });
 Mutations on a given tag (e.g. `users`) auto-invalidate the `[tag]` query-key prefix on success, so a `useCreateUser` mutation refreshes `useListUsers` without manual wiring. Override via the standard `opts.onSuccess`. Errors are typed as `GoductError`.
 
 Peer dependency: `@tanstack/react-query` v5. The user wraps their app in `<QueryClientProvider>` themselves — that is React Query's surface area, not goduct's.
+
+### `--openapi`
+An OpenAPI 3.1 JSON document describing every route and type, suitable for Swagger UI, Postman, Stoplight, Redoc, or any OpenAPI-aware consumer ([ADR 0034](docs/decisions/0034-openapi-export.md)). Framework-independent — the same `openapi.json` falls out regardless of `--framework`. Generics flatten per-instantiation: `*Page[User]` produces a `Page_User` component schema; `*Page[Result[User, Err]]` produces `Page_Result_User_Err`. Errors surface as a synthesized `GoductError` component referenced by every operation's `default` response.
+
+Convert to YAML downstream if needed (`yq -P openapi.json > openapi.yaml`); goduct emits JSON only to keep its dep footprint tiny.
 
 ### `--go-adapter`
 A `Register(...)` function that wires every handler to the right route, decodes path/query/body into your request struct, and serializes the response. Errors flow through `goduct.WriteError` and produce a consistent wire format. Defaults to chi; pick a framework with `--framework chi|gin|echo|mux` (chi default, [ADR 0030](docs/decisions/0030-framework-adapter-selection.md)):
@@ -305,7 +311,7 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **Generics:** `type Page[T any] struct{...}` and instantiations like `*Page[User]` work end-to-end ([ADR 0033](docs/decisions/0033-generics.md)). Multi-param (`Result[T, E]`) supported. Type-param constraints are `any`-only in v0.3; non-`any` constraints loud-fail. Generic enums/aliases and generic handler signatures themselves are out of scope.
 
-**Not yet supported (planned):** SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
+**Not yet supported (planned):** SSE/streaming; WebSockets; gRPC bridging. See the [Roadmap](#roadmap).
 
 ---
 
@@ -341,7 +347,7 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.2** (this release) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`).
 
-**v0.3** (in progress on `main`) — Generics in request/response types (shipped). Remaining for v0.3 tag: OpenAPI 3.1 export, Swagger UI generator, Postman collection export.
+**v0.3** (in progress on `main`) — Generics in request/response types (shipped), OpenAPI 3.1 export (`--openapi`, shipped). Remaining for v0.3 tag: Swagger UI generator, Postman collection export.
 
 **v0.4** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
 
