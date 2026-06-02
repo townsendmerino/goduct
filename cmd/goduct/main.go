@@ -70,6 +70,7 @@ func runGen(args []string) int {
 		dir   = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
 		tags  = fs.String("tags", "", "comma-separated build tags")
 		tests = fs.Bool("tests", false, "include _test.go files when loading")
+		watch = fs.Bool("watch", false, "re-run generators on source-file change (Ctrl-C to stop)")
 	)
 
 	// README puts the package pattern first, before any flags; the
@@ -108,14 +109,60 @@ func runGen(args []string) int {
 		return 2
 	}
 
-	api, err := analyzer.Analyze([]string{pattern}, analyzer.LoadOptions{
-		Dir:       *dir,
-		BuildTags: splitTags(*tags),
-		Tests:     *tests,
+	req := runRequest{
+		pattern: pattern,
+		out:     *out,
+		dir:     *dir,
+		tags:    splitTags(*tags),
+		tests:   *tests,
+		chosen:  chosen,
+		needOut: needOut,
+	}
+
+	// First run uses the loud-failure contract: any analyze/generate/IO
+	// error aborts with exit 1 (ADR 0007). Subsequent --watch runs print
+	// errors but keep watching (ADR 0029 §4).
+	api, err := generateOnce(req, false)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if !*watch {
+		return 0
+	}
+	if err := watchAndRegen(api, req); err != nil {
+		fmt.Fprintf(os.Stderr, "goduct: watch: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runRequest is the validated, parameterless-from-here-on description
+// of one generation: pattern + flags + the chosen specs. Both the
+// one-shot path and the --watch loop call generateOnce(req).
+type runRequest struct {
+	pattern string
+	out     string
+	dir     string
+	tags    []string
+	tests   bool
+	chosen  []genSpec
+	needOut bool
+}
+
+// generateOnce runs analyze + render-to-memory + write for one regen.
+// quiet suppresses the trailing "wrote N file(s)" summary — used by
+// the --watch loop, which prints its own timestamped progress lines.
+// Returns the (*ir.API, error) so the watch loop can update its watched
+// directories from api.SourceDirs.
+func generateOnce(req runRequest, quiet bool) (*ir.API, error) {
+	api, err := analyzer.Analyze([]string{req.pattern}, analyzer.LoadOptions{
+		Dir:       req.dir,
+		BuildTags: req.tags,
+		Tests:     req.tests,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "goduct: analyze: %v\n", err)
-		return 1
+		return nil, fmt.Errorf("goduct: analyze: %w", err)
 	}
 
 	// Render everything to memory first: a generator failure (e.g. an
@@ -126,43 +173,41 @@ func runGen(args []string) int {
 		data []byte
 	}
 	var writes []pending
-	for _, s := range chosen {
+	for _, s := range req.chosen {
 		var buf bytes.Buffer
 		if err := s.fn(api, &buf); err != nil {
-			fmt.Fprintf(os.Stderr, "goduct: %s: %v\n", s.name, err)
-			return 1
+			return api, fmt.Errorf("goduct: %s: %w", s.name, err)
 		}
 		var dst string
 		if s.goSrc {
 			d, err := sourceDir(api)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "goduct: %s: %v\n", s.name, err)
-				return 1
+				return api, fmt.Errorf("goduct: %s: %w", s.name, err)
 			}
 			dst = filepath.Join(d, s.out)
 		} else {
-			dst = filepath.Join(*out, s.out)
+			dst = filepath.Join(req.out, s.out)
 		}
 		writes = append(writes, pending{dst, buf.Bytes()})
 	}
 
-	if needOut {
-		if err := os.MkdirAll(*out, 0o755); err != nil {
-			fmt.Fprintf(os.Stderr, "goduct: create --out: %v\n", err)
-			return 1
+	if req.needOut {
+		if err := os.MkdirAll(req.out, 0o755); err != nil {
+			return api, fmt.Errorf("goduct: create --out: %w", err)
 		}
 	}
 	for _, p := range writes {
 		if err := os.WriteFile(p.path, p.data, 0o644); err != nil {
-			fmt.Fprintf(os.Stderr, "goduct: write %s: %v\n", p.path, err)
-			return 1
+			return api, fmt.Errorf("goduct: write %s: %w", p.path, err)
 		}
 	}
-	fmt.Printf("goduct: wrote %d file(s)\n", len(writes))
-	for _, p := range writes {
-		fmt.Println("  " + p.path)
+	if !quiet {
+		fmt.Printf("goduct: wrote %d file(s)\n", len(writes))
+		for _, p := range writes {
+			fmt.Println("  " + p.path)
+		}
 	}
-	return 0
+	return api, nil
 }
 
 // pickGenerators resolves the selected specs. --all turns on every
@@ -226,6 +271,9 @@ flags:
   --dir <dir>    working dir for resolving <pattern> (default: cwd)
   --tags <list>  comma-separated build tags
   --tests        include _test.go files when loading
+  --watch        re-run generators on source-file change; Ctrl-C to stop
+                 (first run aborts on error; subsequent runs print and
+                 continue per ADR 0029)
 
 exit codes: 0 ok | 1 analyze/generate/IO error | 2 usage error
 `)
