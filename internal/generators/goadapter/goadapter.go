@@ -41,7 +41,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	b.WriteString("}\n")
 
 	for _, rt := range api.Routes {
-		b.WriteString("\n" + wrapper(api, rt) + "\n")
+		b.WriteString("\n" + wrapper(rt) + "\n")
 	}
 
 	src := b.String()
@@ -92,8 +92,8 @@ func importBlock(api *ir.API) string {
 // wrapper renders one handle<Name> function. Field-assignment order is
 // load-bearing: the JSON body is decoded BEFORE path params are applied,
 // so a client cannot override a path param via the body. Do not reorder.
-func wrapper(api *ir.API, rt ir.Route) string {
-	reqType := requestTypeName(api, rt)
+func wrapper(rt ir.Route) string {
+	reqType := requestTypeName(rt)
 	var b strings.Builder
 	b.WriteString("func handle" + rt.HandlerName + "(w http.ResponseWriter, r *http.Request) {\n")
 	b.WriteString("\tvar req " + reqType + "\n")
@@ -158,23 +158,18 @@ func block(goName, wire, parse, want string) string {
 		"\t\treq." + goName + " = n\n\t}\n"
 }
 
-// requestTypeName resolves the handler's request struct name per
-// ADR 0026: body routes from BodyType; otherwise the v0.1
-// <HandlerName>Request convention, validated against api.Types; else a
-// loud panic naming the convention and the v0.2 fix.
-func requestTypeName(api *ir.API, rt ir.Route) string {
-	if rt.BodyType != nil && rt.BodyType.Kind == ir.KindNamed {
-		return shortName(rt.BodyType.Named)
+// requestTypeName returns the short name of the handler's request type.
+// ADR 0027 guarantees ir.Route.RequestType is non-nil and KindNamed for
+// every discovered route (DiscoverRoutes populates it from the handler's
+// second parameter, which ADR 0014 pins as a named struct). A nil here
+// is an analyzer/IR-invariant violation, surfaced as a loud panic per
+// ADR 0022 §5 — not a user-facing error.
+func requestTypeName(rt ir.Route) string {
+	if rt.RequestType == nil || rt.RequestType.Kind != ir.KindNamed {
+		panic("goduct: goadapter: ir.Route.RequestType is nil or non-Named for handler " +
+			rt.HandlerName + " (ADR 0027 invariant violation)")
 	}
-	conventional := gen.SourcePath(api) + "." + rt.HandlerName + "Request"
-	if td, ok := api.Types[conventional]; ok {
-		return td.Name
-	}
-	panic(fmt.Sprintf("goduct: goadapter cannot resolve request type for handler %s: "+
-		"expected %s in api.Types but not found. v0.1 requires the request type to be "+
-		"named <HandlerName>Request when the route has no JSON body (ADR 0026); this is "+
-		"removed when ir.Route carries the request type directly (v0.2).",
-		rt.HandlerName, conventional))
+	return shortName(rt.RequestType.Named)
 }
 
 func successNoBody(status int) string {
