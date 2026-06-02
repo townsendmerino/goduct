@@ -353,9 +353,9 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.1** — chi, idiomatic handlers, types + zod + typed fetch client + go-adapter, basic validation, typed errors.
 
-**v0.2** (this release) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`).
+**v0.2** — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`).
 
-**v0.3** (in progress on `main`) — Generics in request/response types, OpenAPI 3.1 export (`--openapi`), Swagger UI page (`--swagger-ui`), Postman collection (`--postman`). All shipped; ready to tag.
+**v0.3** (this release) — Generics in request/response types, OpenAPI 3.1 export (`--openapi`), Swagger UI page (`--swagger-ui`), Postman collection (`--postman`).
 
 **v0.4** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
 
