@@ -52,24 +52,35 @@ type framework struct {
 	bodyExpr          string // request body io.Reader
 	ctxExpr           string // context.Context expression
 	queryExpr         string // url.Values expression
+	// rawNeedsBridge is true when the framework's router takes a
+	// non-(w, r) handler and raw routes must therefore be wrapped in
+	// a context-bridge `handle<Name>` (ADR 0037). chi/mux: false
+	// (router IS http.HandlerFunc). gin/echo: true.
+	rawNeedsBridge bool
 }
 
 // stdRegisterCall: r.<MethodIdent>("<convertedPath>", <handlerRef>) —
 // used by chi/gin/echo. mux overrides for its `r.HandleFunc("GET /x", h)`
-// shape. handlerRef is "<HandlerName>" for raw routes (ADR 0031: the
-// user's function IS the http.HandlerFunc) or "handle<HandlerName>"
-// for idiomatic routes (the generator emits the wrapper).
+// shape. handlerRef is "<HandlerName>" for raw routes on chi/mux (the
+// user's function IS the http.HandlerFunc; ADR 0031) or "handle<Name>"
+// for idiomatic routes everywhere AND raw routes on gin/echo (the
+// generator emits a wrapper — full dispatch for idiomatic, a
+// context-bridge for gin/echo raw per ADR 0037).
 func stdRegisterCall(methodIdent func(string) string) func(*framework, ir.Route) string {
 	return func(fw *framework, rt ir.Route) string {
 		return "r." + methodIdent(rt.Method) + `("` + fw.pathConvert(rt.Path) +
-			`", ` + handlerRef(rt) + ")"
+			`", ` + handlerRef(fw, rt) + ")"
 	}
 }
 
-// handlerRef is the identifier the Register call binds to a route:
-// raw -> the user's function; idiomatic -> the synthesized wrapper.
-func handlerRef(rt ir.Route) string {
-	if rt.Mode == ir.ModeRaw {
+// handlerRef is the identifier the Register call binds to a route.
+// Raw routes on chi/mux register the user's http.HandlerFunc directly
+// (their router signature is (w, r) natively); raw routes on gin/echo
+// register the generated `handle<Name>` context-bridge wrapper
+// (ADR 0037). Idiomatic routes always register the generated
+// `handle<Name>` dispatch wrapper.
+func handlerRef(fw *framework, rt ir.Route) string {
+	if rt.Mode == ir.ModeRaw && !fw.rawNeedsBridge {
 		return rt.HandlerName
 	}
 	return "handle" + rt.HandlerName
@@ -113,10 +124,11 @@ var frameworks = map[string]*framework{
 		pathParamExpr: func(n string) string {
 			return `c.Param("` + n + `")`
 		},
-		writerExpr: "c.Writer",
-		bodyExpr:   "c.Request.Body",
-		ctxExpr:    "c.Request.Context()",
-		queryExpr:  "c.Request.URL.Query()",
+		writerExpr:     "c.Writer",
+		bodyExpr:       "c.Request.Body",
+		ctxExpr:        "c.Request.Context()",
+		queryExpr:      "c.Request.URL.Query()",
+		rawNeedsBridge: true,
 	},
 
 	"mux": {
@@ -129,7 +141,7 @@ var frameworks = map[string]*framework{
 		// Raw routes (ADR 0031) reference the user's function directly.
 		registerCall: func(fw *framework, rt ir.Route) string {
 			return `r.HandleFunc("` + rt.Method + " " + fw.pathConvert(rt.Path) +
-				`", ` + handlerRef(rt) + ")"
+				`", ` + handlerRef(fw, rt) + ")"
 		},
 		wrapperParams: "w http.ResponseWriter, r *http.Request",
 		wrapperRet:    "",
@@ -164,10 +176,11 @@ var frameworks = map[string]*framework{
 		pathParamExpr: func(n string) string {
 			return `c.Param("` + n + `")`
 		},
-		writerExpr: "c.Response().Writer",
-		bodyExpr:   "c.Request().Body",
-		ctxExpr:    "c.Request().Context()",
-		queryExpr:  "c.Request().URL.Query()",
+		writerExpr:     "c.Response().Writer",
+		bodyExpr:       "c.Request().Body",
+		ctxExpr:        "c.Request().Context()",
+		queryExpr:      "c.Request().URL.Query()",
+		rawNeedsBridge: true,
 	},
 }
 
@@ -199,30 +212,16 @@ func Generate(api *ir.API, w io.Writer) error {
 // "echo", "mux"; unknown returns an error so the CLI can map it to
 // exit 2.
 //
-// Raw-mode routes (ADR 0031): the user's function IS the
-// http.HandlerFunc — Register references it directly with no
-// generated wrapper. For gin/echo, raw mode is not supported in
-// v0.2 (their handler signatures don't match http.HandlerFunc); a
-// loud error names the limitation.
+// Raw-mode routes (ADR 0031): on chi/mux the user's function IS the
+// http.HandlerFunc and Register references it directly. On gin/echo
+// (ADR 0037) the user's `(w, r)` function is wrapped in a generated
+// context-bridge `handle<Name>` that adapts c -> (w, r) and calls
+// the user's handler.
 func GenerateFramework(api *ir.API, w io.Writer, frameworkName string) error {
 	fw, ok := frameworks[frameworkName]
 	if !ok {
 		return fmt.Errorf("goadapter: unknown framework %q (want one of chi/gin/echo/mux)",
 			frameworkName)
-	}
-	// ADR 0031 §3: raw-mode routes only work with chi and mux (both
-	// natively use http.HandlerFunc shape). Reject early with a clear
-	// message; the user can either switch the handler to idiomatic
-	// mode or pick a different --framework.
-	if frameworkName == "gin" || frameworkName == "echo" {
-		for _, rt := range api.Routes {
-			if rt.Mode == ir.ModeRaw {
-				return fmt.Errorf("goadapter: raw http.HandlerFunc mode (handler %s) "+
-					"is not supported on %s in v0.2; use --framework chi or mux, or "+
-					"rewrite as an idiomatic handler (ADR 0031 §3)",
-					rt.HandlerName, frameworkName)
-			}
-		}
 	}
 
 	var b strings.Builder
@@ -239,8 +238,11 @@ func GenerateFramework(api *ir.API, w io.Writer, frameworkName string) error {
 
 	for _, rt := range api.Routes {
 		if rt.Mode == ir.ModeRaw {
-			// Raw routes register the user's function directly; no
-			// wrapper synthesis (ADR 0031 §3).
+			// chi/mux register the user's HandlerFunc directly (ADR 0031 §3).
+			// gin/echo need a context-bridge wrapper (ADR 0037).
+			if s := rawBridge(fw, rt); s != "" {
+				b.WriteString("\n" + s + "\n")
+			}
 			continue
 		}
 		b.WriteString("\n" + wrapper(fw, rt) + "\n")
@@ -290,6 +292,37 @@ func importBlock(api *ir.API, fw *framework) string {
 	}
 	b.WriteString("\n\t" + goductRuntimeImport + "\n)")
 	return b.String()
+}
+
+// rawBridge renders one handle<Name> context-bridge wrapper for a raw
+// route on gin/echo (ADR 0037). Returns "" for chi/mux (the user's
+// function is registered directly; no wrapper is emitted). The bridge
+// adapts the framework context to (w, r) and calls the user's raw
+// handler — no body decode, no param assignment, no response writing
+// (the raw handler owns the wire). Echo wants `error`; the bridge
+// always returns nil (an http.HandlerFunc has no late-error signal).
+func rawBridge(fw *framework, rt ir.Route) string {
+	if !fw.rawNeedsBridge {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("func handle" + rt.HandlerName + "(" + fw.wrapperParams + ")")
+	if fw.wrapperRet != "" {
+		b.WriteString(" " + fw.wrapperRet)
+	}
+	b.WriteString(" {\n")
+	b.WriteString("\t" + rt.HandlerName + "(" + fw.writerExpr + ", " + rawRequestExpr(fw) + ")\n")
+	b.WriteString(fw.finalReturn)
+	b.WriteString("}")
+	return b.String()
+}
+
+// rawRequestExpr is the *http.Request expression for fw's bridge.
+// fw.bodyExpr gives the request body io.Reader (e.g. `c.Request.Body`);
+// strip the trailing `.Body` to get the *http.Request itself, which is
+// what the raw handler needs as its second argument.
+func rawRequestExpr(fw *framework) string {
+	return strings.TrimSuffix(fw.bodyExpr, ".Body")
 }
 
 // wrapper renders one handle<Name> function for fw's framework.

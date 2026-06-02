@@ -75,9 +75,11 @@ func TestGenerate_Golden(t *testing.T) {
 	}
 }
 
-// TestGenerateFramework_RawMode (ADR 0031): raw routes register the
-// user's function directly (no `handle<Name>` wrapper); chi/mux
-// support raw; gin/echo loud-fail. Built from a synthetic IR so
+// TestGenerateFramework_RawMode covers raw-route emission per
+// framework: chi/mux register the user's HandlerFunc directly
+// (ADR 0031 §3); gin/echo register a generated context-bridge
+// `handle<Name>` that adapts the framework context to (w, r) and
+// calls the user's handler (ADR 0037). Built from a synthetic IR so
 // chi-basic goldens stay focused on idiomatic mode.
 func TestGenerateFramework_RawMode(t *testing.T) {
 	rawAPI := &ir.API{
@@ -124,18 +126,41 @@ func TestGenerateFramework_RawMode(t *testing.T) {
 			t.Errorf("mux raw output unexpectedly contains a wrapper:\n%s", out)
 		}
 	})
-	for _, fw := range []string{"gin", "echo"} {
-		t.Run(fw+" raw routes loud-fail (ADR 0031 §3)", func(t *testing.T) {
-			var buf bytes.Buffer
-			err := GenerateFramework(rawAPI, &buf, fw)
-			if err == nil {
-				t.Fatalf("%s: expected error for raw mode, got nil", fw)
-			}
-			if !strings.Contains(err.Error(), "raw http.HandlerFunc mode") {
-				t.Errorf("%s: error = %q, want substring 'raw http.HandlerFunc mode'", fw, err)
-			}
-		})
-	}
+	t.Run("gin raw routes use a context-bridge wrapper (ADR 0037)", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := GenerateFramework(rawAPI, &buf, "gin"); err != nil {
+			t.Fatalf("GenerateFramework gin: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, `r.GET("/ping", handleRawPing)`) {
+			t.Errorf("gin raw output missing bridge register %q:\n%s", `r.GET("/ping", handleRawPing)`, out)
+		}
+		if !strings.Contains(out, "func handleRawPing(c *gin.Context) {") {
+			t.Errorf("gin raw output missing bridge declaration:\n%s", out)
+		}
+		if !strings.Contains(out, "RawPing(c.Writer, c.Request)") {
+			t.Errorf("gin bridge body should call the user's handler with (c.Writer, c.Request):\n%s", out)
+		}
+	})
+	t.Run("echo raw routes use a context-bridge wrapper (ADR 0037)", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := GenerateFramework(rawAPI, &buf, "echo"); err != nil {
+			t.Fatalf("GenerateFramework echo: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, `r.GET("/ping", handleRawPing)`) {
+			t.Errorf("echo raw output missing bridge register %q; got:\n%s", `r.GET("/ping", handleRawPing)`, out)
+		}
+		if !strings.Contains(out, "func handleRawPing(c echo.Context) error {") {
+			t.Errorf("echo raw output missing bridge declaration:\n%s", out)
+		}
+		if !strings.Contains(out, "RawPing(c.Response().Writer, c.Request())") {
+			t.Errorf("echo bridge body should call the user's handler with (c.Response().Writer, c.Request()):\n%s", out)
+		}
+		if !strings.Contains(out, "return nil") {
+			t.Errorf("echo bridge must return nil (no late-error signal from http.HandlerFunc):\n%s", out)
+		}
+	})
 }
 
 // TestGenerateFramework_UnknownErrors: bad framework name is a clear
