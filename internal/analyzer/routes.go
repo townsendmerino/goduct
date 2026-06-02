@@ -133,6 +133,11 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		Mode:        ir.ModeIdiomatic,
 		Doc:         dirs.Doc,
 		Pos:         pos,
+		// ADR 0027: handler's second-parameter type, always non-nil for a
+		// discovered route. For body routes this duplicates BodyType
+		// (assigned below); for non-body routes BodyType stays nil but
+		// RequestType is still populated.
+		RequestType: &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(reqNamed)},
 	}
 	if dirs.Tag != "" {
 		route.Tag = dirs.Tag

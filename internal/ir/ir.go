@@ -13,6 +13,15 @@ type API struct {
 	// "github.com/townsendmerino/goduct/examples/chi-basic/api.GetUserResponse").
 	// Generators decide how to render the unqualified name in their output.
 	Types map[string]TypeDef
+
+	// SourceDirs maps each analyzed package's import path to its
+	// filesystem directory. The Go adapter is written into the handlers'
+	// own package directory (ADR 0009); this is how the CLI knows where.
+	// For v0.1 single-package input this map has exactly one entry; the
+	// shape is forward-compatible with v0.2 multi-package input. Added in
+	// v0.2 per ADR 0027 (which removes the cmd/goduct Route.Pos-parsing
+	// workaround).
+	SourceDirs map[string]string
 }
 
 // Route is one HTTP endpoint.
@@ -39,6 +48,15 @@ type Route struct {
 	// fields of the request struct), or nil when the route has no body
 	// (typically GET/DELETE, or when the request struct has no json fields).
 	BodyType *TypeRef
+
+	// RequestType is the handler's second-parameter type (T in
+	// `func(ctx, T) ...`). Always non-nil for a discovered route — ADR 0014
+	// guarantees idiomatic handlers have a named-struct request parameter.
+	// For body routes, RequestType and BodyType point at the same named
+	// type; for non-body routes (GET/DELETE/body-less POST) RequestType is
+	// populated and BodyType is nil. Added in v0.2 per ADR 0027 (which
+	// supersedes the ADR 0026 naming convention).
+	RequestType *TypeRef
 
 	// ResponseType references the response value's type. nil means the
 	// handler returns no body (status 204).

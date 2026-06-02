@@ -8,6 +8,7 @@ package analyzer
 
 import (
 	"errors"
+	"path/filepath"
 
 	"github.com/townsendmerino/goduct/internal/ir"
 )
@@ -30,7 +31,10 @@ func Analyze(patterns []string, opts LoadOptions) (*ir.API, error) {
 		errs = append(errs, loadErr)
 	}
 
-	api := &ir.API{Types: map[string]ir.TypeDef{}}
+	api := &ir.API{
+		Types:      map[string]ir.TypeDef{},
+		SourceDirs: map[string]string{},
+	}
 	for _, pkg := range pkgs {
 		routes, err := DiscoverRoutes(pkg)
 		if err != nil {
@@ -48,6 +52,14 @@ func Analyze(patterns []string, opts LoadOptions) (*ir.API, error) {
 				panic("goduct: internal: duplicate qualified type name across packages: " + k)
 			}
 			api.Types[k] = v
+		}
+		// ADR 0027: record the source directory for this package so
+		// goadapter consumers (the CLI) can write goduct_routes.go beside
+		// the source (ADR 0009) without parsing Route.Pos. Every loaded
+		// package has at least one Go file; if it doesn't, leave the entry
+		// off rather than panicking — empty input is a `goduct gen` no-op.
+		if len(pkg.GoFiles) > 0 {
+			api.SourceDirs[pkg.PkgPath] = filepath.Dir(pkg.GoFiles[0])
 		}
 	}
 	return api, errors.Join(errs...)
