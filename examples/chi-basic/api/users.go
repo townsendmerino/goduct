@@ -83,6 +83,7 @@ func ListUsers(ctx context.Context, req ListUsersRequest) (*ListUsersResponse, e
 type CreateUserRequest struct {
 	Email string `json:"email" validate:"required,email"`
 	Name  string `json:"name"  validate:"required,min=1"`
+	Role  string `json:"role"  validate:"required,oneof=admin viewer member"`
 }
 
 // CreateUser creates a new user.

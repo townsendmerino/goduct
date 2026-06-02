@@ -31,6 +31,7 @@ export type ListUsersResponse = z.infer<typeof ListUsersResponse>;
 export const CreateUserRequest = z.object({
   email: z.string().email(),
   name: z.string().min(1),
+  role: z.enum(["admin", "viewer", "member"]),
 });
 export type CreateUserRequest = z.infer<typeof CreateUserRequest>;
 

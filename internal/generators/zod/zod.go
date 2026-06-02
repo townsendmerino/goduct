@@ -69,10 +69,20 @@ func enumExpr(td ir.TypeDef) string {
 }
 
 // fieldExpr is zodExpr(type) + validator chain (source order) + .optional().
-// `required` is a no-op (presence is modeled by .optional()); unknown
-// validators are silently ignored (ADR 0006 — v0.1 client subset).
+// `required` is a no-op (presence is modeled by .optional()); `oneof`
+// replaces the base type expression with z.enum([...]) for string fields
+// (ADR 0006 Empirical-finding update, v0.2); unknown validators are
+// silently ignored (ADR 0006 — v0.1 client subset).
 func fieldExpr(f ir.Field) string {
 	e := zodExpr(f.Type)
+	// oneof is special: it doesn't *chain* on the base expression, it
+	// *replaces* it. v0.2 supports string-typed oneof (the validator's
+	// common case). Non-string oneof would need z.union([z.literal(...)])
+	// and is deferred — it falls through to the "silently ignored" path
+	// below and behaves as in v0.1.
+	if arg := oneOfArg(f.Validation); arg != "" && isStringType(f.Type) {
+		e = "z.enum([" + quoteSpaceList(arg) + "])"
+	}
 	for _, r := range f.Validation {
 		switch r.Name {
 		case "email":
@@ -91,6 +101,35 @@ func fieldExpr(f ir.Field) string {
 		e += ".optional()"
 	}
 	return e
+}
+
+// oneOfArg returns the Arg of a `oneof` rule if any, else "". Chosen
+// over a generic findRule helper because oneof is the only validator
+// currently treated as base-replacing.
+func oneOfArg(rules []ir.ValidationRule) string {
+	for _, r := range rules {
+		if r.Name == "oneof" {
+			return r.Arg
+		}
+	}
+	return ""
+}
+
+// isStringType reports whether a TypeRef is the plain `string` builtin.
+// Gates the v0.2 oneof translation to its sound case.
+func isStringType(t ir.TypeRef) bool {
+	return t.Kind == ir.KindBuiltin && t.Builtin == "string"
+}
+
+// quoteSpaceList renders a space-separated `oneof` argument list as a
+// comma-separated list of JSON-style double-quoted tokens, suitable for
+// embedding in z.enum([...]). Empty tokens are skipped via strings.Fields.
+func quoteSpaceList(s string) string {
+	parts := strings.Fields(s)
+	for i, p := range parts {
+		parts[i] = `"` + p + `"`
+	}
+	return strings.Join(parts, ", ")
 }
 
 // zodExpr maps an ir.TypeRef to a zod expression. KindNamed renders as the

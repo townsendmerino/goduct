@@ -4,6 +4,9 @@
 **Date:** 2026-05-17
 **Amended:** 2026-05-18 — Consequences: `oneof` partial-implementation
 empirical finding (milestone 14). Decision unchanged.
+**Amended:** 2026-06-02 — Consequences: `oneof` (v0.2) shipped for
+string-typed fields as `z.enum([...])`; non-string oneof still
+silently ignored (deferred). Decision unchanged.
 
 ## Context
 
@@ -55,6 +58,30 @@ so the `oneof` path was never golden-tested. Shipping it untested under
 the loud-failure principle ([0007](0007-loud-failure-on-unsupported-input.md))
 felt worse than explicitly deferring it. v0.2 will implement and
 golden-test.
+
+### Empirical finding (v0.2, 2026-06-02)
+
+`oneof` is now translated for **string-typed fields**:
+`validate:"oneof=a b c"` on a `string` Go field produces
+`z.enum(["a", "b", "c"])` (replacing the base `z.string()`).
+`required` remains a no-op; `.optional()` and other validator-chain
+calls compose normally on top of the enum.
+
+Golden-tested via `CreateUserRequest.Role` in chi-basic
+(`validate:"required,oneof=admin viewer member"`).
+
+Non-string `oneof` (e.g. `int` with `oneof=1 2 3`) is **not** translated
+— it falls through to the silently-ignored path, same as in v0.1.
+Supporting it would emit `z.union([z.literal(...)])`. Tracked in the
+Post-v0.1 spec-trust-coverage entry; no concrete trigger yet (no real
+project has surfaced this need).
+
+TS-type narrowing is also still v0.1-style: a `string` field with
+`oneof` is `string` in `types.ts`, not a `"admin" | "viewer" | "member"`
+union. Users who want TS narrowing should declare a typed string enum
+(`type Role string` with consts) — the same path `UserStatus` uses
+today. ADR 0006 covers zod (runtime) translation; TS-type narrowing
+is a separate question and not in scope.
 
 ## Alternatives considered
 

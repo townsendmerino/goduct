@@ -128,6 +128,21 @@ func TestFieldExpr(t *testing.T) {
 		{"enum-typed required", ir.Field{Type: enum,
 			Validation: []ir.ValidationRule{{Name: "required"}}}, "UserStatus"},
 		{"enum-typed optional", ir.Field{Type: enum, Optional: true}, "UserStatus.optional()"},
+		// oneof on string (v0.2): replaces z.string() with z.enum([...]);
+		// required is still a no-op; the field is not Optional so no .optional() chain.
+		{"string oneof required", ir.Field{Type: str,
+			Validation: []ir.ValidationRule{
+				{Name: "required"}, {Name: "oneof", Arg: "admin viewer member"}}},
+			`z.enum(["admin", "viewer", "member"])`},
+		// oneof on string + optional: enum + .optional() chain.
+		{"string oneof optional", ir.Field{Type: str, Optional: true,
+			Validation: []ir.ValidationRule{{Name: "oneof", Arg: "a b"}}},
+			`z.enum(["a", "b"]).optional()`},
+		// oneof on non-string (int): falls through (currently silently
+		// ignored — z.number().int() is still emitted unchanged).
+		{"int oneof falls through", ir.Field{Type: num,
+			Validation: []ir.ValidationRule{{Name: "oneof", Arg: "1 2 3"}}},
+			"z.number().int()"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
