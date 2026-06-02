@@ -108,6 +108,31 @@ var frameworks = map[string]*framework{
 		queryExpr:  "c.Request.URL.Query()",
 	},
 
+	"mux": {
+		name:              "mux",
+		importLine:        "", // stdlib only; net/http already in the import block
+		registerParamType: "*http.ServeMux",
+		// mux (Go 1.22+) uses the same brace syntax as chi.
+		pathConvert: chiPath,
+		// mux differs: r.HandleFunc("METHOD /path", h), not r.<METHOD>(...).
+		registerCall: func(fw *framework, rt ir.Route) string {
+			return `r.HandleFunc("` + rt.Method + " " + fw.pathConvert(rt.Path) +
+				`", handle` + rt.HandlerName + ")"
+		},
+		wrapperParams: "w http.ResponseWriter, r *http.Request",
+		wrapperRet:    "",
+		earlyReturn:   "return",
+		finalReturn:   "",
+		// Go 1.22+ adds *http.Request.PathValue for mux-pattern path params.
+		pathParamExpr: func(n string) string {
+			return `r.PathValue("` + n + `")`
+		},
+		writerExpr: "w",
+		bodyExpr:   "r.Body",
+		ctxExpr:    "r.Context()",
+		queryExpr:  "r.URL.Query()",
+	},
+
 	"echo": {
 		name:              "echo",
 		importLine:        `"github.com/labstack/echo/v4"`,
