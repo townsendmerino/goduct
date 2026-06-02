@@ -84,25 +84,25 @@ func TestSignature(t *testing.T) {
 	str := ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}
 	num := ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "int"}
 	pathOnly := ir.Route{PathParams: []ir.Param{{WireName: "id", Type: str}}}
-	if got := signature(pathOnly); got != "params: { id: string }" {
+	if got := signature(pathOnly, nil); got != "params: { id: string }" {
 		t.Errorf("path-only sig = %q", got)
 	}
 	queryOnly := ir.Route{QueryParams: []ir.Param{
 		{WireName: "limit", Type: num, Optional: true},
 		{WireName: "cursor", Type: str, Optional: true},
 	}}
-	if got := signature(queryOnly); got != "params: { limit?: number; cursor?: string }" {
+	if got := signature(queryOnly, nil); got != "params: { limit?: number; cursor?: string }" {
 		t.Errorf("query-only sig = %q", got)
 	}
 	bodyOnly := ir.Route{BodyType: &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.CreateUserRequest"}}
-	if got := signature(bodyOnly); got != "body: t.CreateUserRequest" {
+	if got := signature(bodyOnly, nil); got != "body: t.CreateUserRequest" {
 		t.Errorf("body-only sig = %q", got)
 	}
 	pathBody := ir.Route{
 		PathParams: []ir.Param{{WireName: "id", Type: str}},
 		BodyType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.UpdateUserRequest"},
 	}
-	if got := signature(pathBody); got != "params: { id: string }, body: t.UpdateUserRequest" {
+	if got := signature(pathBody, nil); got != "params: { id: string }, body: t.UpdateUserRequest" {
 		t.Errorf("path+body sig = %q", got)
 	}
 }
@@ -114,7 +114,7 @@ func TestRenderMethod_NoDoc(t *testing.T) {
 		Path: "/users/:id", Doc: "",
 		PathParams: []ir.Param{{WireName: "id", Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}},
 	}
-	out := renderMethod(r)
+	out := renderMethod(r, nil)
 	if strings.Contains(out, "/**") {
 		t.Errorf("no-doc route must not emit JSDoc, got:\n%s", out)
 	}

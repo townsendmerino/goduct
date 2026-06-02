@@ -31,9 +31,18 @@ func Analyze(patterns []string, opts LoadOptions) (*ir.API, error) {
 		errs = append(errs, loadErr)
 	}
 
+	// ADR 0032: copy user-declared custom adapters onto the IR so
+	// generators can render adapted types per their wire shape, and
+	// set the package-scoped currentAdapters slot so recognizeBuiltin
+	// sees them during type traversal. Defer-cleared so a panic mid-
+	// analysis doesn't leak state into the next Analyze call.
+	adapters := opts.CustomAdapters
+	currentAdapters = adapters
+	defer func() { currentAdapters = nil }()
 	api := &ir.API{
-		Types:      map[string]ir.TypeDef{},
-		SourceDirs: map[string]string{},
+		Types:          map[string]ir.TypeDef{},
+		SourceDirs:     map[string]string{},
+		CustomAdapters: adapters,
 	}
 	for _, pkg := range pkgs {
 		routes, err := DiscoverRoutes(pkg)

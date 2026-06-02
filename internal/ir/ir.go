@@ -22,6 +22,15 @@ type API struct {
 	// v0.2 per ADR 0027 (which removes the cmd/goduct Route.Pos-parsing
 	// workaround).
 	SourceDirs map[string]string
+
+	// CustomAdapters maps a Go type's fully qualified name
+	// (`<import-path>.<TypeName>`) to its JSON wire shape — one of
+	// "string", "number", "boolean", "unknown". Populated by the
+	// analyzer from LoadOptions.CustomAdapters; consumed by generators
+	// to render adapted types per ADR 0032 (v0.2). Built-in special
+	// types (ADR 0017) take precedence; an adapter declared on a
+	// built-in qname is silently ignored.
+	CustomAdapters map[string]string
 }
 
 // Route is one HTTP endpoint.

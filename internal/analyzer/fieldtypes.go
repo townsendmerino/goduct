@@ -39,6 +39,33 @@ func basicName(b *types.Basic) (string, bool) {
 	return "", false
 }
 
+// currentAdapters is the user-declared --adapter map for the current
+// Analyze call, scoped to the single-threaded analyzer pass. Set by
+// Analyze and reset (deferred) on return; read by recognizeBuiltin.
+// Package-scoped because threading adapters through every fieldTypeRef
+// caller would balloon the diff for a value that's effectively read-only
+// for the duration of an Analyze invocation. ADR 0032.
+var currentAdapters map[string]string
+
+// recognizeBuiltin recognizes either an ADR 0017 special-type or a
+// user-declared adapter (ADR 0032). Built-in takes precedence (ADR 0032
+// §2). Returns the ir.Builtin string the analyzer should emit.
+func recognizeBuiltin(t types.Type) (string, bool) {
+	if name, ok := isSpecialBuiltin(t); ok {
+		return name, true
+	}
+	if n, ok := t.(*types.Named); ok && currentAdapters != nil {
+		o := n.Obj()
+		if o.Pkg() != nil {
+			qname := o.Pkg().Path() + "." + o.Name()
+			if _, ok := currentAdapters[qname]; ok {
+				return qname, true
+			}
+		}
+	}
+	return "", false
+}
+
 // isSpecialBuiltin recognizes ADR 0017 types by qualified name (for named
 // types) or the literal []byte slice. Returns the ir.Builtin string.
 func isSpecialBuiltin(t types.Type) (string, bool) {
@@ -130,7 +157,7 @@ func fieldTypeRef(t types.Type) (ref ir.TypeRef, isPtr bool, err *typeErr) {
 	// and unaffected by Unalias. Milestone-14 audit verified this is the
 	// only kind-switch in the analyzer; new ones must follow the same rule.
 	t = types.Unalias(t)
-	if name, ok := isSpecialBuiltin(t); ok {
+	if name, ok := recognizeBuiltin(t); ok {
 		return ir.TypeRef{Kind: ir.KindBuiltin, Builtin: name}, isPtr, nil
 	}
 	switch u := t.(type) {
@@ -141,9 +168,15 @@ func fieldTypeRef(t types.Type) (ref ir.TypeRef, isPtr bool, err *typeErr) {
 				"use a concrete type for now (project roadmap)"}
 		}
 		if hasJSONMarshaler(t) {
+			path := ""
+			if u.Obj().Pkg() != nil {
+				path = u.Obj().Pkg().Path() + "."
+			}
+			qname := path + u.Obj().Name()
 			return ir.TypeRef{}, isPtr, &typeErr{"C3",
-				"type " + u.Obj().Name() + " has a MarshalJSON method; its wire shape cannot be inferred in v0.1",
-				"remove MarshalJSON, or request support (deferred per ADR 0017)"}
+				"type " + qname + " has a MarshalJSON method; its wire shape cannot be inferred",
+				"declare a custom adapter (e.g. --adapter " + qname + "=string) per ADR 0032, " +
+					"or use a string field with manual conversion"}
 		}
 		path := ""
 		if u.Obj().Pkg() != nil {

@@ -98,7 +98,7 @@ func TestZodExpr(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := zodExpr(c.ref); got != c.want {
+			if got := zodExpr(c.ref, nil); got != c.want {
 				t.Errorf("zodExpr = %q, want %q", got, c.want)
 			}
 		})
@@ -146,7 +146,7 @@ func TestFieldExpr(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := fieldExpr(c.f); got != c.want {
+			if got := fieldExpr(c.f, nil); got != c.want {
 				t.Errorf("fieldExpr = %q, want %q", got, c.want)
 			}
 		})

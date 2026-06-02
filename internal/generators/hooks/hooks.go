@@ -58,7 +58,7 @@ func Generate(api *ir.API, w io.Writer) error {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(hookFor(r))
+		b.WriteString(hookFor(r, api.CustomAdapters))
 	}
 	b.WriteString("  };\n")
 	b.WriteString("}\n\n")
@@ -71,15 +71,15 @@ func Generate(api *ir.API, w io.Writer) error {
 // including JSDoc, signature, and call body, ending with a trailing
 // comma. GET routes produce useQuery wrappers; everything else
 // produces useMutation wrappers (ADR 0028 §2).
-func hookFor(r ir.Route) string {
+func hookFor(r ir.Route, adapters map[string]string) string {
 	var b strings.Builder
 	if d := gen.JSDocFull(r.HandlerName, r.Doc); d != "" {
 		b.WriteString("    /** " + d + " */\n")
 	}
 	if r.Method == "GET" {
-		b.WriteString(queryHook(r))
+		b.WriteString(queryHook(r, adapters))
 	} else {
-		b.WriteString(mutationHook(r))
+		b.WriteString(mutationHook(r, adapters))
 	}
 	return b.String()
 }
@@ -88,7 +88,7 @@ func hookFor(r ir.Route) string {
 // [tag, methodName, params]; methodName is the same tag-stripped form
 // tsclient uses (gen.MethodName), so cache identity stays consistent
 // with what an in-page imperative client call would produce.
-func queryHook(r ir.Route) string {
+func queryHook(r ir.Route, adapters map[string]string) string {
 	name := "use" + r.HandlerName
 	method := gen.MethodName(r.HandlerName, r.Tag)
 	tdata := "t." + short(r.ResponseType.Named)
@@ -109,7 +109,7 @@ func queryHook(r ir.Route) string {
 		return b.String()
 	}
 
-	paramsType := paramsObject(r.PathParams, r.QueryParams)
+	paramsType := paramsObject(r.PathParams, r.QueryParams, adapters)
 	sigSingle := "    " + name + ": (params: " + paramsType + ", opts?: " + optsType + ") =>"
 	if len(sigSingle) <= printWidth {
 		b.WriteString(sigSingle + "\n")
@@ -131,7 +131,7 @@ func queryHook(r ir.Route) string {
 // mutation auto-invalidates [tag] on success; the user's opts.onSuccess
 // (if any) runs *after* the invalidation with the same arguments so
 // extension code keeps the default behavior.
-func mutationHook(r ir.Route) string {
+func mutationHook(r ir.Route, adapters map[string]string) string {
 	name := "use" + r.HandlerName
 	method := gen.MethodName(r.HandlerName, r.Tag)
 
@@ -139,7 +139,7 @@ func mutationHook(r ir.Route) string {
 	if r.ResponseType != nil && r.ResponseType.Kind == ir.KindNamed {
 		tdata = "t." + short(r.ResponseType.Named)
 	}
-	tvars, callExpr := mutationTVarsAndCall(r, method)
+	tvars, callExpr := mutationTVarsAndCall(r, method, adapters)
 	optsType := "HookMutationOptions<" + tdata + ", " + tvars + ">"
 
 	var b strings.Builder
@@ -179,14 +179,14 @@ func mutationHook(r ir.Route) string {
 // covers the three chi-basic shapes (body-only, path-only, path+body);
 // query params on a mutation and other unhandled combos panic per
 // ADR 0022 §5 (analyzer-invariant or out-of-scope shape).
-func mutationTVarsAndCall(r ir.Route, method string) (tvars, call string) {
+func mutationTVarsAndCall(r ir.Route, method string, adapters map[string]string) (tvars, call string) {
 	if len(r.QueryParams) > 0 {
 		panic("hooks: mutation with query params not supported in v0.2 (handler " +
 			r.HandlerName + ")")
 	}
 	hasPath := len(r.PathParams) > 0
 	hasBody := r.BodyType != nil && r.BodyType.Kind == ir.KindNamed
-	pathObj := paramsObject(r.PathParams, nil)
+	pathObj := paramsObject(r.PathParams, nil, adapters)
 	callBase := "client." + r.Tag + "." + method
 
 	switch {
@@ -209,17 +209,17 @@ func mutationTVarsAndCall(r ir.Route, method string) (tvars, call string) {
 // (ADR 0015 — `validate:"required"` is the only opt-out). Members are
 // `; `-joined to match the tsclient signature shape, so prettier won't
 // re-wrap a single-line params object.
-func paramsObject(path, query []ir.Param) string {
+func paramsObject(path, query []ir.Param, adapters map[string]string) string {
 	var m []string
 	for _, p := range path {
-		m = append(m, p.WireName+": "+tsType(p.Type))
+		m = append(m, p.WireName+": "+tsType(p.Type, adapters))
 	}
 	for _, q := range query {
 		opt := ""
 		if q.Optional {
 			opt = "?"
 		}
-		m = append(m, q.WireName+opt+": "+tsType(q.Type))
+		m = append(m, q.WireName+opt+": "+tsType(q.Type, adapters))
 	}
 	return "{ " + strings.Join(m, "; ") + " }"
 }
@@ -234,9 +234,10 @@ func short(qualified string) string {
 
 // tsType maps an ir.TypeRef to its TS spelling. Per ADR 0022 §6 this
 // is generator-local (not shared with tsclient): each generator owns
-// its target-language type-string rules. Unknown builtin/kind = loud
-// panic (ADR 0022 §5).
-func tsType(ref ir.TypeRef) string {
+// its target-language type-string rules. Custom-adapted builtins
+// (ADR 0032) fall through to gen.AdapterWireTS by wire shape; otherwise
+// unknown builtin/kind = loud panic (ADR 0022 §5).
+func tsType(ref ir.TypeRef, adapters map[string]string) string {
 	switch ref.Kind {
 	case ir.KindBuiltin:
 		switch ref.Builtin {
@@ -251,13 +252,18 @@ func tsType(ref ir.TypeRef) string {
 			"float32", "float64", "time.Duration":
 			return "number"
 		}
+		if wire, ok := adapters[ref.Builtin]; ok {
+			if ts := gen.AdapterWireTS(wire); ts != "" {
+				return ts
+			}
+		}
 		panic("hooks: unknown builtin " + ref.Builtin)
 	case ir.KindNamed:
 		return short(ref.Named)
 	case ir.KindSlice:
-		return tsType(*ref.Element) + "[]"
+		return tsType(*ref.Element, adapters) + "[]"
 	case ir.KindMap:
-		return "Record<" + tsType(*ref.Key) + ", " + tsType(*ref.Value) + ">"
+		return "Record<" + tsType(*ref.Key, adapters) + ", " + tsType(*ref.Value, adapters) + ">"
 	}
 	panic("hooks: unhandled TypeRef kind")
 }

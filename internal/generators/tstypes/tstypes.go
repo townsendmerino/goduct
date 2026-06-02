@@ -21,7 +21,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	var parts []string
 	for _, td := range gen.TopoSortTypes(api) {
 		if gen.EmitTS(td) {
-			parts = append(parts, renderType(td))
+			parts = append(parts, renderType(td, api.CustomAdapters))
 		}
 	}
 	b.WriteString(strings.Join(parts, "\n\n"))
@@ -30,7 +30,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	return err
 }
 
-func renderType(td ir.TypeDef) string {
+func renderType(td ir.TypeDef, adapters map[string]string) string {
 	var s strings.Builder
 	if d := gen.JSDoc(td.Name, td.Doc); d != "" {
 		s.WriteString("/** " + d + " */\n")
@@ -46,13 +46,13 @@ func renderType(td ir.TypeDef) string {
 			if f.Optional {
 				opt = "?"
 			}
-			s.WriteString("  " + f.JSONName + opt + ": " + tsType(f.Type) + ";\n")
+			s.WriteString("  " + f.JSONName + opt + ": " + tsType(f.Type, adapters) + ";\n")
 		}
 		s.WriteString("}")
 	case ir.TypeEnum:
 		s.WriteString("export type " + td.Name + " = " + enumUnion(td) + ";")
 	case ir.TypeAlias:
-		s.WriteString("export type " + td.Name + " = " + tsType(*td.AliasTo) + ";")
+		s.WriteString("export type " + td.Name + " = " + tsType(*td.AliasTo, adapters) + ";")
 	}
 	return s.String()
 }
@@ -72,9 +72,11 @@ func enumUnion(td ir.TypeDef) string {
 // tsType maps an ir.TypeRef to its TS type string. It is a free function:
 // KindNamed renders as the bare type name (a single token), so the
 // prompt's anticipated enum-element parenthesization never triggers and
-// tsType needs no access to api. TypeRef.Optional is informational here —
-// the "?" is decided by Field.Optional at the field site, not by tsType.
-func tsType(ref ir.TypeRef) string {
+// tsType takes the api's CustomAdapters map so an unknown built-in
+// qname can fall through to the user's declared wire shape (ADR 0032)
+// rather than panicking. TypeRef.Optional is informational here — the
+// "?" is decided by Field.Optional at the field site, not by tsType.
+func tsType(ref ir.TypeRef, adapters map[string]string) string {
 	switch ref.Kind {
 	case ir.KindBuiltin:
 		switch ref.Builtin {
@@ -89,7 +91,14 @@ func tsType(ref ir.TypeRef) string {
 			"float32", "float64", "time.Duration":
 			return "number"
 		}
-		// Unknown builtin = analyzer/IR bug surfacing here (ADR 0022 §5).
+		// ADR 0032 fallthrough: a custom-adapted qname renders per its
+		// declared wire shape. Unknown otherwise = analyzer/IR bug
+		// surfacing here (ADR 0022 §5).
+		if wire, ok := adapters[ref.Builtin]; ok {
+			if ts := gen.AdapterWireTS(wire); ts != "" {
+				return ts
+			}
+		}
 		panic("tstypes: unknown builtin " + ref.Builtin)
 	case ir.KindNamed:
 		n := ref.Named
@@ -98,9 +107,9 @@ func tsType(ref ir.TypeRef) string {
 		}
 		return n
 	case ir.KindSlice:
-		return tsType(*ref.Element) + "[]"
+		return tsType(*ref.Element, adapters) + "[]"
 	case ir.KindMap:
-		return "Record<" + tsType(*ref.Key) + ", " + tsType(*ref.Value) + ">"
+		return "Record<" + tsType(*ref.Key, adapters) + ", " + tsType(*ref.Value, adapters) + ">"
 	}
 	panic("tstypes: unhandled TypeRef kind")
 }

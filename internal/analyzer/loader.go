@@ -27,6 +27,13 @@ type LoadOptions struct {
 	// Dir overrides the working directory for resolving relative paths.
 	// Default: process cwd.
 	Dir string
+
+	// CustomAdapters maps a Go qualified type name to its JSON wire
+	// shape — one of "string", "number", "boolean", "unknown". Lets the
+	// analyzer recognize types outside ADR 0017's hardcoded set as
+	// opaque builtins (ADR 0032, v0.2). Default: nil. The CLI populates
+	// this from repeatable --adapter qname=wire flags.
+	CustomAdapters map[string]string
 }
 
 // loadMode is the fixed capability set the analyzer needs: full syntax plus

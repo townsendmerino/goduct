@@ -103,8 +103,9 @@ func visitType(pkg *packages.Package, qname string, reqNames map[string]bool, en
 			qname, pkgPath, qname))
 		return
 	}
-	if name, ok := isSpecialBuiltin(n); ok {
-		panic("visitType reached ADR 0017 special builtin " + name + " (" + qname + "); must be field-level only")
+	if name, ok := recognizeBuiltin(n); ok {
+		panic("visitType reached ADR 0017 special or ADR 0032 adapted builtin " +
+			name + " (" + qname + "); must be field-level only")
 	}
 
 	doc, pos := typeDocPos(pkg, n)

@@ -97,7 +97,7 @@ func TestTSType(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := tsType(c.ref); got != c.want {
+			if got := tsType(c.ref, nil); got != c.want {
 				t.Errorf("tsType = %q, want %q", got, c.want)
 			}
 		})

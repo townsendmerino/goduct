@@ -170,3 +170,41 @@ func Pascal(s string) string {
 	rs[0] = unicode.ToUpper(rs[0])
 	return string(rs)
 }
+
+// AdapterWireTS maps an ADR 0032 wire shape to its TypeScript spelling.
+// Returns "" for an unknown wire (callers panic loudly with the offending
+// value — an unknown wire here is an analyzer/IR-invariant violation,
+// not a user error; the CLI validates the value at flag-parse time).
+func AdapterWireTS(wire string) string {
+	switch wire {
+	case "string":
+		return "string"
+	case "number":
+		return "number"
+	case "boolean":
+		return "boolean"
+	case "unknown":
+		return "unknown"
+	}
+	return ""
+}
+
+// AdapterWireZod maps an ADR 0032 wire shape to its zod-schema spelling.
+// Returns "" for unknown wires; callers panic.
+func AdapterWireZod(wire string) string {
+	switch wire {
+	case "string":
+		return "z.string()"
+	case "number":
+		return "z.number()"
+	case "boolean":
+		return "z.boolean()"
+	case "unknown":
+		return "z.unknown()"
+	}
+	return ""
+}
+
+// AdapterWires is the set of valid ADR 0032 wire-shape strings, used by
+// the CLI to validate --adapter values before invoking the analyzer.
+var AdapterWires = []string{"string", "number", "boolean", "unknown"}

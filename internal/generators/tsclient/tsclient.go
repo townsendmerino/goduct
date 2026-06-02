@@ -111,7 +111,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	for _, tag := range tagOrder {
 		methods := make([]string, 0, len(byTag[tag]))
 		for _, r := range byTag[tag] {
-			methods = append(methods, renderMethod(r))
+			methods = append(methods, renderMethod(r, api.CustomAdapters))
 		}
 		tagBlocks = append(tagBlocks,
 			"    "+tag+": {\n"+strings.Join(methods, "\n\n")+"\n    },")
@@ -123,7 +123,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	return err
 }
 
-func renderMethod(r ir.Route) string {
+func renderMethod(r ir.Route, adapters map[string]string) string {
 	var b strings.Builder
 	if d := gen.JSDocFull(r.HandlerName, r.Doc); d != "" {
 		b.WriteString("      /** " + d + " */\n")
@@ -134,7 +134,7 @@ func renderMethod(r ir.Route) string {
 		ret = "Promise<t." + short(r.ResponseType.Named) + ">"
 	}
 	b.WriteString("      " + gen.MethodName(r.HandlerName, r.Tag) +
-		": async (" + signature(r) + "): " + ret + " => {\n")
+		": async (" + signature(r, adapters) + "): " + ret + " => {\n")
 
 	if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
 		b.WriteString("        const parsed = schemas." + short(r.BodyType.Named) + ".parse(body);\n")
@@ -166,21 +166,21 @@ func renderMethod(r ir.Route) string {
 
 // signature builds the method's argument list: a `params` object (path
 // then query members; path required, query per Param.Optional) and/or a
-// `body` argument. Path+query merge is spec-trust (no chi-basic route has
-// both; see TODO.md).
-func signature(r ir.Route) string {
+// `body` argument. adapters threads ir.API.CustomAdapters through to
+// tsType so adapted path/query types render per ADR 0032.
+func signature(r ir.Route, adapters map[string]string) string {
 	var args []string
 	if len(r.PathParams)+len(r.QueryParams) > 0 {
 		var m []string
 		for _, p := range r.PathParams {
-			m = append(m, p.WireName+": "+tsType(p.Type))
+			m = append(m, p.WireName+": "+tsType(p.Type, adapters))
 		}
 		for _, q := range r.QueryParams {
 			opt := ""
 			if q.Optional {
 				opt = "?"
 			}
-			m = append(m, q.WireName+opt+": "+tsType(q.Type))
+			m = append(m, q.WireName+opt+": "+tsType(q.Type, adapters))
 		}
 		args = append(args, "params: { "+strings.Join(m, "; ")+" }")
 	}
@@ -213,9 +213,10 @@ func short(qualified string) string {
 
 // tsType maps a param TypeRef to a TS type string. Generator-local per
 // ADR 0022 §6. Params are primitives or []primitive (ADR 0014/PATH2);
-// named/map handled for completeness. Panic on unknown builtin/kind per
-// ADR 0022 §5 (analyzer-invariant violation, loud).
-func tsType(ref ir.TypeRef) string {
+// named/map handled for completeness. Custom-adapted builtins (ADR 0032)
+// fall through to gen.AdapterWireTS by wire shape; otherwise unknown
+// builtin/kind = analyzer-invariant violation, panic per ADR 0022 §5.
+func tsType(ref ir.TypeRef, adapters map[string]string) string {
 	switch ref.Kind {
 	case ir.KindBuiltin:
 		switch ref.Builtin {
@@ -230,13 +231,18 @@ func tsType(ref ir.TypeRef) string {
 			"float32", "float64", "time.Duration":
 			return "number"
 		}
+		if wire, ok := adapters[ref.Builtin]; ok {
+			if ts := gen.AdapterWireTS(wire); ts != "" {
+				return ts
+			}
+		}
 		panic("tsclient: unknown builtin " + ref.Builtin)
 	case ir.KindNamed:
 		return short(ref.Named)
 	case ir.KindSlice:
-		return tsType(*ref.Element) + "[]"
+		return tsType(*ref.Element, adapters) + "[]"
 	case ir.KindMap:
-		return "Record<" + tsType(*ref.Key) + ", " + tsType(*ref.Value) + ">"
+		return "Record<" + tsType(*ref.Key, adapters) + ", " + tsType(*ref.Value, adapters) + ">"
 	}
 	panic("tsclient: unhandled TypeRef kind")
 }

@@ -85,7 +85,7 @@ func TestTSType(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := tsType(c.ref); got != c.want {
+			if got := tsType(c.ref, nil); got != c.want {
 				t.Errorf("tsType = %q, want %q", got, c.want)
 			}
 		})
@@ -101,7 +101,7 @@ func TestMutationTVarsAndCall(t *testing.T) {
 
 	t.Run("body-only", func(t *testing.T) {
 		r := ir.Route{HandlerName: "CreateUser", Tag: "users", Method: "POST", BodyType: body}
-		tv, call := mutationTVarsAndCall(r, "create")
+		tv, call := mutationTVarsAndCall(r, "create", nil)
 		if tv != "t.CreateUserRequest" {
 			t.Errorf("TVars = %q", tv)
 		}
@@ -113,7 +113,7 @@ func TestMutationTVarsAndCall(t *testing.T) {
 	t.Run("path-only", func(t *testing.T) {
 		r := ir.Route{HandlerName: "DeleteUser", Tag: "users", Method: "DELETE",
 			PathParams: []ir.Param{mkPath("id")}}
-		tv, call := mutationTVarsAndCall(r, "delete")
+		tv, call := mutationTVarsAndCall(r, "delete", nil)
 		if tv != "{ id: string }" {
 			t.Errorf("TVars = %q", tv)
 		}
@@ -126,7 +126,7 @@ func TestMutationTVarsAndCall(t *testing.T) {
 		r := ir.Route{HandlerName: "UpdateUser", Tag: "users", Method: "PATCH",
 			PathParams: []ir.Param{mkPath("id")},
 			BodyType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.UpdateUserRequest"}}
-		tv, call := mutationTVarsAndCall(r, "update")
+		tv, call := mutationTVarsAndCall(r, "update", nil)
 		want := "{ params: { id: string }; body: t.UpdateUserRequest }"
 		if tv != want {
 			t.Errorf("TVars = %q, want %q", tv, want)
@@ -145,6 +145,6 @@ func TestMutationTVarsAndCall(t *testing.T) {
 		r := ir.Route{HandlerName: "Weird", Tag: "x", Method: "POST",
 			QueryParams: []ir.Param{{WireName: "q",
 				Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}}}
-		mutationTVarsAndCall(r, "weird")
+		mutationTVarsAndCall(r, "weird", nil)
 	})
 }

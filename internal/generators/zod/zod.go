@@ -23,7 +23,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	var blocks []string
 	for _, td := range gen.TopoSortTypes(api) {
 		if gen.EmitTS(td) {
-			blocks = append(blocks, renderSchema(td))
+			blocks = append(blocks, renderSchema(td, api.CustomAdapters))
 		}
 	}
 	b.WriteString(strings.Join(blocks, "\n\n"))
@@ -33,21 +33,22 @@ func Generate(api *ir.API, w io.Writer) error {
 }
 
 // renderSchema emits the schema const and its z.infer type alias (no doc
-// comment, per ADR 0024).
-func renderSchema(td ir.TypeDef) string {
+// comment, per ADR 0024). adapters threads ir.API.CustomAdapters through
+// to fieldExpr / zodExpr so adapted types render per ADR 0032.
+func renderSchema(td ir.TypeDef, adapters map[string]string) string {
 	var b strings.Builder
 	b.WriteString("export const " + td.Name + " = ")
 	switch td.Kind {
 	case ir.TypeStruct:
 		b.WriteString("z.object({\n")
 		for _, f := range gen.WireFields(td) {
-			b.WriteString("  " + f.JSONName + ": " + fieldExpr(f) + ",\n")
+			b.WriteString("  " + f.JSONName + ": " + fieldExpr(f, adapters) + ",\n")
 		}
 		b.WriteString("})")
 	case ir.TypeEnum:
 		b.WriteString(enumExpr(td))
 	case ir.TypeAlias:
-		b.WriteString(zodExpr(*td.AliasTo))
+		b.WriteString(zodExpr(*td.AliasTo, adapters))
 	}
 	b.WriteString(";\n")
 	b.WriteString("export type " + td.Name + " = z.infer<typeof " + td.Name + ">;")
@@ -73,8 +74,8 @@ func enumExpr(td ir.TypeDef) string {
 // replaces the base type expression with z.enum([...]) for string fields
 // (ADR 0006 Empirical-finding update, v0.2); unknown validators are
 // silently ignored (ADR 0006 — v0.1 client subset).
-func fieldExpr(f ir.Field) string {
-	e := zodExpr(f.Type)
+func fieldExpr(f ir.Field, adapters map[string]string) string {
+	e := zodExpr(f.Type, adapters)
 	// oneof is special: it doesn't *chain* on the base expression, it
 	// *replaces* it. v0.2 supports string-typed oneof (the validator's
 	// common case). Non-string oneof would need z.union([z.literal(...)])
@@ -133,10 +134,10 @@ func quoteSpaceList(s string) string {
 }
 
 // zodExpr maps an ir.TypeRef to a zod expression. KindNamed renders as the
-// bare schema-const identifier (a forward value reference). Unknown builtin
-// = analyzer/IR bug surfacing here, panic per ADR 0022 §5 (same pattern as
-// tstypes.tsType).
-func zodExpr(ref ir.TypeRef) string {
+// bare schema-const identifier (a forward value reference). Custom-adapted
+// builtins (ADR 0032) fall through to gen.AdapterWireZod by wire shape;
+// otherwise unknown builtin = analyzer/IR bug, panic per ADR 0022 §5.
+func zodExpr(ref ir.TypeRef, adapters map[string]string) string {
 	switch ref.Kind {
 	case ir.KindBuiltin:
 		switch ref.Builtin {
@@ -159,6 +160,11 @@ func zodExpr(ref ir.TypeRef) string {
 		case "uuid.UUID":
 			return "z.string().uuid()"
 		}
+		if wire, ok := adapters[ref.Builtin]; ok {
+			if z := gen.AdapterWireZod(wire); z != "" {
+				return z
+			}
+		}
 		panic("zod: unknown builtin " + ref.Builtin)
 	case ir.KindNamed:
 		n := ref.Named
@@ -167,9 +173,9 @@ func zodExpr(ref ir.TypeRef) string {
 		}
 		return n
 	case ir.KindSlice:
-		return "z.array(" + zodExpr(*ref.Element) + ")"
+		return "z.array(" + zodExpr(*ref.Element, adapters) + ")"
 	case ir.KindMap:
-		return "z.record(" + zodExpr(*ref.Key) + ", " + zodExpr(*ref.Value) + ")"
+		return "z.record(" + zodExpr(*ref.Key, adapters) + ", " + zodExpr(*ref.Value, adapters) + ")"
 	}
 	panic("zod: unhandled TypeRef kind")
 }
