@@ -76,3 +76,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0030](0030-framework-adapter-selection.md) | Framework-adapter selection mechanism and structure (v0.2) | Accepted |
 | [0031](0031-raw-handlerfunc-mode.md) | Raw `http.HandlerFunc` mode (v0.2) | Accepted |
 | [0032](0032-custom-type-adapters.md) | Custom type adapters (v0.2) | Accepted |
+| [0033](0033-generics.md) | Generics in request/response types (v0.3) | Accepted |
