@@ -1,0 +1,239 @@
+package openapi
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/townsendmerino/goduct/internal/analyzer"
+	"github.com/townsendmerino/goduct/internal/ir"
+)
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, _ := runtime.Caller(0)
+	r, err := filepath.Abs(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestGenerate_ChiBasicGolden(t *testing.T) {
+	root := repoRoot(t)
+	api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
+		analyzer.LoadOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	want, err := os.ReadFile(filepath.Join(root,
+		"examples/chi-basic/testdata/expected/openapi.json"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Errorf("openapi.json != golden (got %d bytes, want %d bytes)",
+			buf.Len(), len(want))
+	}
+}
+
+// TestGenerate_ValidJSON: the generated output round-trips through
+// encoding/json. If a future change emits malformed JSON, this fires
+// before the byte-diff test masks it as a "huge diff".
+func TestGenerate_ValidJSON(t *testing.T) {
+	root := repoRoot(t)
+	api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
+		analyzer.LoadOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if parsed["openapi"] != "3.1.0" {
+		t.Errorf("openapi field = %v, want 3.1.0", parsed["openapi"])
+	}
+}
+
+func TestPathConvert(t *testing.T) {
+	cases := map[string]string{
+		"/users":          "/users",
+		"/users/:id":      "/users/{id}",
+		"/a/:x/b/:y":      "/a/{x}/b/{y}",
+		"/no/colons/here": "/no/colons/here",
+	}
+	for in, want := range cases {
+		if got := pathConvert(in); got != want {
+			t.Errorf("pathConvert(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestInstantiationName(t *testing.T) {
+	cases := []struct {
+		name   string
+		qname  string
+		args   []*ir.TypeRef
+		want   string
+	}{
+		{
+			"Page<User>",
+			"x/api.Page",
+			[]*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}},
+			"Page_User",
+		},
+		{
+			"Result<User, Err>",
+			"x/api.Result",
+			[]*ir.TypeRef{
+				{Kind: ir.KindNamed, Named: "x/api.User"},
+				{Kind: ir.KindNamed, Named: "x/api.Err"},
+			},
+			"Result_User_Err",
+		},
+		{
+			"Page<Result<User, Err>>",
+			"x/api.Page",
+			[]*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.Result",
+				TypeArgs: []*ir.TypeRef{
+					{Kind: ir.KindNamed, Named: "x/api.User"},
+					{Kind: ir.KindNamed, Named: "x/api.Err"},
+				}}},
+			"Page_Result_User_Err",
+		},
+		{
+			"Optional<string>",
+			"x/api.Optional",
+			[]*ir.TypeRef{{Kind: ir.KindBuiltin, Builtin: "string"}},
+			"Optional_string",
+		},
+		{
+			"List<time.Time>",
+			"x/api.List",
+			[]*ir.TypeRef{{Kind: ir.KindBuiltin, Builtin: "time.Time"}},
+			"List_Time",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := instantiationName(c.qname, c.args); got != c.want {
+				t.Errorf("instantiationName = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestBuiltinSchema(t *testing.T) {
+	api := &ir.API{}
+	cases := []struct {
+		in   string
+		want string // a substring check on the JSON-encoded schema
+	}{
+		{"string", `"type":"string"`},
+		{"bool", `"type":"boolean"`},
+		{"int", `"type":"integer"`},
+		{"int64", `"type":"integer"`},
+		{"float64", `"type":"number"`},
+		{"time.Time", `"format":"date-time"`},
+		{"[]byte", `"format":"byte"`},
+		{"uuid.UUID", `"format":"uuid"`},
+		{"json.RawMessage", `{}`},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			s := builtinSchema(api, c.in)
+			b, _ := json.Marshal(s)
+			if !strings.Contains(string(b), c.want) {
+				t.Errorf("builtinSchema(%q) = %s, want substring %q", c.in, b, c.want)
+			}
+		})
+	}
+}
+
+func TestCustomAdapter_FallsThrough(t *testing.T) {
+	// ADR 0032: a user-declared adapter qname renders per its wire
+	// shape (mirrors AdapterWireTS / AdapterWireZod for JSON Schema).
+	api := &ir.API{
+		CustomAdapters: map[string]string{
+			"github.com/shopspring/decimal.Decimal": "string",
+			"foo.Pi":                                "number",
+		},
+	}
+	if got, _ := json.Marshal(builtinSchema(api, "github.com/shopspring/decimal.Decimal")); !strings.Contains(string(got), `"type":"string"`) {
+		t.Errorf("decimal adapter not string: %s", got)
+	}
+	if got, _ := json.Marshal(builtinSchema(api, "foo.Pi")); !strings.Contains(string(got), `"type":"number"`) {
+		t.Errorf("Pi adapter not number: %s", got)
+	}
+}
+
+// TestGenericInstantiation: a synthetic IR with a Page[T] origin +
+// a route returning *Page[User] produces a Page_User component
+// schema with the substituted field types.
+func TestGenericInstantiation(t *testing.T) {
+	api := &ir.API{
+		Types: map[string]ir.TypeDef{
+			"x/api.Page": {
+				QualifiedName: "x/api.Page", Name: "Page", Kind: ir.TypeStruct,
+				TypeParams: []string{"T"},
+				Fields: []ir.Field{
+					{GoName: "Items", JSONName: "items", Source: ir.FieldSourceJSON,
+						Type: ir.TypeRef{Kind: ir.KindSlice,
+							Element: &ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"}}},
+					{GoName: "NextCursor", JSONName: "nextCursor", Source: ir.FieldSourceJSON, Optional: true,
+						Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}},
+				},
+			},
+			"x/api.User": {
+				QualifiedName: "x/api.User", Name: "User", Kind: ir.TypeStruct,
+				Fields: []ir.Field{
+					{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+						Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}},
+				},
+			},
+		},
+		Routes: []ir.Route{{
+			HandlerName: "ListUsers", Method: "GET", Path: "/users", Tag: "users",
+			SuccessStatus: 200,
+			ResponseType: &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+				TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}}},
+		}},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	out := buf.String()
+	// The instantiation is emitted as Page_User; the generic origin
+	// Page is NOT emitted as a standalone component.
+	if !strings.Contains(out, `"Page_User"`) {
+		t.Errorf("expected Page_User component schema:\n%s", out)
+	}
+	if strings.Contains(out, `"schemas": {`) && strings.Contains(out, `"Page": {`) {
+		// Look for `"Page": {` as a component-schema header, not the prefix of "Page_User".
+		if idx := strings.Index(out, `"Page": {`); idx >= 0 {
+			t.Errorf("Page (generic origin) should not be emitted as standalone component:\n%s", out)
+		}
+	}
+	// The route's response references Page_User by $ref.
+	if !strings.Contains(out, `"$ref": "#/components/schemas/Page_User"`) {
+		t.Errorf("response $ref should target Page_User:\n%s", out)
+	}
+	// The substituted Page_User has items: array of User-$ref.
+	if !strings.Contains(out, `"$ref": "#/components/schemas/User"`) {
+		t.Errorf("Page_User.items should $ref User:\n%s", out)
+	}
+}
