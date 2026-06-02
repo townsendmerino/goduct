@@ -147,7 +147,10 @@ func TestDiscoverTypes_Errors(t *testing.T) {
 		{"B2 interface", "", "", "I any `json:\"i\"`", "B2"},
 		{"B3 anon struct", "", "", "A struct{ X int } `json:\"a\"`", "B3"},
 		{"B4 named bad underlying", "", "type Bad chan int\n", "B Bad `json:\"b\"`", "B4"},
-		{"C1 generics", "", "type Box[T any] struct{ V T }\n", "G Box[int] `json:\"g\"`", "C1"},
+		// ADR 0033 (v0.3) lifted the old C1 "generics deferred" — Box[int]
+		// is now a valid instantiation. Constraint-bearing generics
+		// (other than `any`) keep the C1 loud-fail and are exercised
+		// separately in TestDiscoverTypes_Generics_ConstraintLoudFail.
 		{"C3 marshaljson", "", "type Cust struct{}\nfunc (Cust) MarshalJSON() ([]byte, error) { return nil, nil }\n", "C Cust `json:\"c\"`", "C3"},
 		{"E2 path on response", "", "", "ID string `path:\"id\"`", "E2"},
 	}

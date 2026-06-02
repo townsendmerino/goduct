@@ -109,10 +109,13 @@ type S struct {
 }
 
 func TestFieldTypeRef_Errors(t *testing.T) {
+	// ADR 0033 (v0.3): the former C1 "generic type instantiation
+	// is deferred" branch is lifted — Box[int] now resolves to
+	// KindNamed with TypeArgs. Generics tests live elsewhere; this
+	// table covers the remaining always-loud cases.
 	st := ftStruct(t, `
 type Marsh struct{}
 func (Marsh) MarshalJSON() ([]byte, error) { return nil, nil }
-type Box[T any] struct{ V T }
 type S struct {
 	Iface any
 	Fn    func()
@@ -120,7 +123,6 @@ type S struct {
 	Cplx  complex128
 	BadM  map[int]string
 	Cust  Marsh
-	Gen   Box[int]
 }`, "S")
 	cases := map[string]string{
 		"Iface": "B2",
@@ -129,7 +131,6 @@ type S struct {
 		"Cplx":  "A3",
 		"BadM":  "B1",
 		"Cust":  "C3",
-		"Gen":   "C1",
 	}
 	for name, cat := range cases {
 		t.Run(name, func(t *testing.T) {

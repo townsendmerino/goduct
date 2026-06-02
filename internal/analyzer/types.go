@@ -59,12 +59,30 @@ func DiscoverTypes(pkg *packages.Package, routes []ir.Route) (map[string]ir.Type
 		}
 		q := qual(n)
 		requestTypeNames[q] = true
+		// Seed the request type itself, plus the named-type leaves of
+		// each route TypeRef (ADR 0033: walking via collectNamedDeps
+		// reaches TypeArgs leaves like the User inside *Page[User]).
 		add(q)
-		if r.ResponseType != nil && r.ResponseType.Kind == ir.KindNamed {
-			add(r.ResponseType.Named)
+		if r.RequestType != nil {
+			var d []string
+			collectNamedDeps(*r.RequestType, &d)
+			for _, x := range d {
+				add(x)
+			}
 		}
-		if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
-			add(r.BodyType.Named)
+		if r.ResponseType != nil {
+			var d []string
+			collectNamedDeps(*r.ResponseType, &d)
+			for _, x := range d {
+				add(x)
+			}
+		}
+		if r.BodyType != nil {
+			var d []string
+			collectNamedDeps(*r.BodyType, &d)
+			for _, x := range d {
+				add(x)
+			}
 		}
 	}
 
@@ -110,6 +128,24 @@ func visitType(pkg *packages.Package, qname string, reqNames map[string]bool, en
 
 	doc, pos := typeDocPos(pkg, n)
 	base := ir.TypeDef{QualifiedName: qname, Name: n.Obj().Name(), Doc: doc, Pos: pos}
+
+	// ADR 0033: capture type-parameter names for generic types. Only
+	// `any` constraints are supported in v0.3 (a non-`any` constraint
+	// is loud-failed). The TypeParams slice flows to generators so
+	// they can render `interface Page<T>` / factory functions etc.
+	if tp := n.TypeParams(); tp != nil && tp.Len() > 0 {
+		for i := 0; i < tp.Len(); i++ {
+			p := tp.At(i)
+			if !isAnyConstraint(p.Constraint()) {
+				*errs = append(*errs, formatTypeErr(pkg, n, "C1",
+					"type parameter "+p.Obj().Name()+" on "+n.Obj().Name()+
+						" has a constraint other than `any`; v0.3 only supports `any`-constrained generics",
+					"replace the constraint with `any` (or wait for v0.4)"))
+				return
+			}
+			base.TypeParams = append(base.TypeParams, p.Obj().Name())
+		}
+	}
 
 	switch u := n.Underlying().(type) {
 	case *types.Struct:
@@ -234,6 +270,14 @@ func collectNamedDeps(r ir.TypeRef, out *[]string) {
 	switch r.Kind {
 	case ir.KindNamed:
 		*out = append(*out, r.Named)
+		// ADR 0033: a generic instantiation's TypeArgs are themselves
+		// named-type references (or builtins); walk them so the args
+		// get seeded into the visit queue alongside the generic origin.
+		for _, ta := range r.TypeArgs {
+			if ta != nil {
+				collectNamedDeps(*ta, out)
+			}
+		}
 	case ir.KindSlice:
 		if r.Element != nil {
 			collectNamedDeps(*r.Element, out)
@@ -246,6 +290,19 @@ func collectNamedDeps(r ir.TypeRef, out *[]string) {
 			collectNamedDeps(*r.Value, out)
 		}
 	}
+}
+
+// isAnyConstraint reports whether c is the empty interface (`any` /
+// `interface{}` / `comparable`-less). v0.3 only supports `any`-typed
+// generic params (ADR 0033 §1); anything else loud-fails. The check
+// walks the constraint's underlying interface and asserts it has no
+// embedded types or methods.
+func isAnyConstraint(c types.Type) bool {
+	iface, ok := c.Underlying().(*types.Interface)
+	if !ok {
+		return false
+	}
+	return iface.NumMethods() == 0 && iface.NumEmbeddeds() == 0
 }
 
 // resolveNamed returns the *types.Named for a full-path qualified name, or

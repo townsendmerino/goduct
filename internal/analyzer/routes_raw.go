@@ -91,8 +91,12 @@ func discoverRawHandler(pkg *packages.Package, fn *ast.FuncDecl, dirs Directives
 		Mode:        ir.ModeRaw,
 		Doc:         dirs.Doc,
 		Pos:         pos,
-		RequestType: &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(reqNamed)},
 	}
+	rqRef, err := namedRefWithArgs(reqNamed)
+	if err != nil {
+		return fail("handler %s: %v", name, err)
+	}
+	route.RequestType = rqRef
 	if dirs.Tag != "" {
 		route.Tag = dirs.Tag
 	} else {
@@ -118,10 +122,18 @@ func discoverRawHandler(pkg *packages.Package, fn *ast.FuncDecl, dirs Directives
 			route.Method, reqNamed.Obj().Name())
 	}
 	if bodyAllowed && hasJSON {
-		route.BodyType = &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(reqNamed)}
+		bRef, err := namedRefWithArgs(reqNamed)
+		if err != nil {
+			return fail("handler %s body type: %v", name, err)
+		}
+		route.BodyType = bRef
 	}
 	if respNamed != nil {
-		route.ResponseType = &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(respNamed)}
+		rRef, err := namedRefWithArgs(respNamed)
+		if err != nil {
+			return fail("handler %s response type: %v", name, err)
+		}
+		route.ResponseType = rRef
 	}
 
 	if err := checkPathParams(route); err != nil {

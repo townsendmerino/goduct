@@ -161,12 +161,12 @@ func fieldTypeRef(t types.Type) (ref ir.TypeRef, isPtr bool, err *typeErr) {
 		return ir.TypeRef{Kind: ir.KindBuiltin, Builtin: name}, isPtr, nil
 	}
 	switch u := t.(type) {
+	case *types.TypeParam:
+		// ADR 0033: inside a generic type's field list, T resolves to a
+		// TypeParam — emit a KindTypeParam ref so generators can render
+		// the param name verbatim ("T", "K", "V").
+		return ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: u.Obj().Name()}, isPtr, nil
 	case *types.Named:
-		if u.TypeArgs() != nil && u.TypeArgs().Len() > 0 {
-			return ir.TypeRef{}, isPtr, &typeErr{"C1",
-				"generic type instantiation (" + u.Obj().Name() + "[...]) is deferred to v0.2",
-				"use a concrete type for now (project roadmap)"}
-		}
 		if hasJSONMarshaler(t) {
 			path := ""
 			if u.Obj().Pkg() != nil {
@@ -182,7 +182,24 @@ func fieldTypeRef(t types.Type) (ref ir.TypeRef, isPtr bool, err *typeErr) {
 		if u.Obj().Pkg() != nil {
 			path = u.Obj().Pkg().Path() + "."
 		}
-		return ir.TypeRef{Kind: ir.KindNamed, Named: path + u.Obj().Name()}, isPtr, nil
+		ref := ir.TypeRef{Kind: ir.KindNamed, Named: path + u.Obj().Name()}
+		// ADR 0033: instantiation — carry the concrete type args.
+		// Page[User] gets TypeArgs=[User]; the generic origin Page is
+		// emitted exactly once in api.Types regardless of how many
+		// distinct instantiations the program contains.
+		if ta := u.TypeArgs(); ta != nil && ta.Len() > 0 {
+			args := make([]*ir.TypeRef, ta.Len())
+			for i := 0; i < ta.Len(); i++ {
+				arg, argPtr, e := fieldTypeRef(ta.At(i))
+				if e != nil {
+					return ir.TypeRef{}, isPtr, e
+				}
+				arg.Optional = argPtr
+				args[i] = &arg
+			}
+			ref.TypeArgs = args
+		}
+		return ref, isPtr, nil
 	case *types.Basic:
 		if n, ok := basicName(u); ok {
 			return ir.TypeRef{Kind: ir.KindBuiltin, Builtin: n}, isPtr, nil

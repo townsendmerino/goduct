@@ -152,13 +152,15 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		Path:        dirs.Route.Path,
 		Mode:        ir.ModeIdiomatic,
 		Doc:         dirs.Doc,
-		Pos:         pos,
-		// ADR 0027: handler's second-parameter type, always non-nil for a
-		// discovered route. For body routes this duplicates BodyType
-		// (assigned below); for non-body routes BodyType stays nil but
-		// RequestType is still populated.
-		RequestType: &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(reqNamed)},
+		Pos: pos,
 	}
+	// ADR 0027: RequestType always non-nil for a discovered route.
+	// ADR 0033: TypeArgs populated if reqNamed is an instantiated generic.
+	reqRef, err := namedRefWithArgs(reqNamed)
+	if err != nil {
+		return fail("handler %s: %v", name, err)
+	}
+	route.RequestType = reqRef
 	if dirs.Tag != "" {
 		route.Tag = dirs.Tag
 	} else {
@@ -182,10 +184,18 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 			route.Method, reqNamed.Obj().Name())
 	}
 	if bodyAllowed && hasJSON {
-		route.BodyType = &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(reqNamed)}
+		bRef, err := namedRefWithArgs(reqNamed)
+		if err != nil {
+			return fail("handler %s body type: %v", name, err)
+		}
+		route.BodyType = bRef
 	}
 	if respNamed != nil {
-		route.ResponseType = &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(respNamed)}
+		rRef, err := namedRefWithArgs(respNamed)
+		if err != nil {
+			return fail("handler %s response type: %v", name, err)
+		}
+		route.ResponseType = rRef
 	}
 
 	if err := checkPathParams(route); err != nil {
@@ -300,6 +310,33 @@ func inferTag(path string) string {
 
 func qualified(n *types.Named) string {
 	return n.Obj().Pkg().Path() + "." + n.Obj().Name()
+}
+
+// namedRefWithArgs builds a KindNamed TypeRef for n, carrying TypeArgs
+// when n is an instantiated generic (ADR 0033). RequestType, BodyType,
+// and ResponseType all flow through here so a handler returning
+// *Page[User] gets a TypeRef whose TypeArgs == [User]. Errors building
+// any single arg via fieldTypeRef propagate; the request/response
+// types themselves were validated upstream so an error here would be
+// a TypeArgs-level issue (e.g. a func in an arg position) that
+// rightly stops route discovery.
+func namedRefWithArgs(n *types.Named) (*ir.TypeRef, error) {
+	ref := &ir.TypeRef{Kind: ir.KindNamed, Named: qualified(n)}
+	ta := n.TypeArgs()
+	if ta == nil || ta.Len() == 0 {
+		return ref, nil
+	}
+	args := make([]*ir.TypeRef, ta.Len())
+	for i := 0; i < ta.Len(); i++ {
+		arg, argPtr, te := fieldTypeRef(ta.At(i))
+		if te != nil {
+			return nil, fmt.Errorf("%s in type argument %d", te.desc, i+1)
+		}
+		arg.Optional = argPtr
+		args[i] = &arg
+	}
+	ref.TypeArgs = args
+	return ref, nil
 }
 
 func isContextContext(t types.Type) bool {
