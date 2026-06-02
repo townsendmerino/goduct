@@ -48,23 +48,48 @@ func lineDiff(want, got string) string {
 }
 
 func TestGenerate_Golden(t *testing.T) {
-	root := repoRoot(t)
+	// One sub-test per framework. ADR 0030 §3: each framework has its
+	// own golden under testdata/expected/<name>/goduct_routes.go.
+	for _, fw := range []string{"chi", "gin"} {
+		t.Run(fw, func(t *testing.T) {
+			root := repoRoot(t)
+			api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
+				analyzer.LoadOptions{Dir: root})
+			if err != nil {
+				t.Fatalf("Analyze: %v", err)
+			}
+			var buf bytes.Buffer
+			if err := GenerateFramework(api, &buf, fw); err != nil {
+				t.Fatalf("GenerateFramework(%s): %v", fw, err)
+			}
+			want, err := os.ReadFile(filepath.Join(root,
+				"examples/chi-basic/testdata/expected/"+fw+"/goduct_routes.go"))
+			if err != nil {
+				t.Fatalf("read golden: %v", err)
+			}
+			if !bytes.Equal(buf.Bytes(), want) {
+				t.Errorf("generated goduct_routes.go != %s golden:\n%s",
+					fw, lineDiff(string(want), buf.String()))
+			}
+		})
+	}
+}
+
+// TestGenerateFramework_UnknownErrors: bad framework name is a clear
+// error, not a panic — the CLI maps it to exit 2 (ADR 0030 §1).
+func TestGenerateFramework_UnknownErrors(t *testing.T) {
 	api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
-		analyzer.LoadOptions{Dir: root})
+		analyzer.LoadOptions{Dir: repoRoot(t)})
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
 	var buf bytes.Buffer
-	if err := Generate(api, &buf); err != nil {
-		t.Fatalf("Generate: %v", err)
+	err = GenerateFramework(api, &buf, "fastapi") // not a Go framework, definitely not ours
+	if err == nil {
+		t.Fatal("expected error for unknown framework, got nil")
 	}
-	want, err := os.ReadFile(filepath.Join(root,
-		"examples/chi-basic/testdata/expected/chi/goduct_routes.go"))
-	if err != nil {
-		t.Fatalf("read golden: %v", err)
-	}
-	if !bytes.Equal(buf.Bytes(), want) {
-		t.Errorf("generated goduct_routes.go != golden:\n%s", lineDiff(string(want), buf.String()))
+	if !strings.Contains(err.Error(), "unknown framework") {
+		t.Errorf("error = %q, want substring 'unknown framework'", err)
 	}
 }
 

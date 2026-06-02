@@ -64,6 +64,10 @@ func stdRegisterCall(methodIdent func(string) string) func(*framework, ir.Route)
 	}
 }
 
+// methodUpper is a no-op rename for clarity at framework call sites:
+// gin/echo/mux register methods are upper-case ("GET"), not Pascal.
+func methodUpper(m string) string { return m }
+
 var frameworks = map[string]*framework{
 	"chi": {
 		name:              "chi",
@@ -82,6 +86,26 @@ var frameworks = map[string]*framework{
 		bodyExpr:   "r.Body",
 		ctxExpr:    "r.Context()",
 		queryExpr:  "r.URL.Query()",
+	},
+
+	"gin": {
+		name:              "gin",
+		importLine:        `"github.com/gin-gonic/gin"`,
+		registerParamType: "*gin.Engine",
+		// gin keeps goduct's :name path syntax verbatim — no conversion needed.
+		pathConvert:   func(p string) string { return p },
+		registerCall:  stdRegisterCall(methodUpper),
+		wrapperParams: "c *gin.Context",
+		wrapperRet:    "",
+		earlyReturn:   "return",
+		finalReturn:   "",
+		pathParamExpr: func(n string) string {
+			return `c.Param("` + n + `")`
+		},
+		writerExpr: "c.Writer",
+		bodyExpr:   "c.Request.Body",
+		ctxExpr:    "c.Request.Context()",
+		queryExpr:  "c.Request.URL.Query()",
 	},
 }
 
