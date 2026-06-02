@@ -73,3 +73,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0027](0027-enrich-ir-for-go-side-codegen.md) | Enrich the IR for Go-side code generation (v0.2) | Accepted |
 | [0028](0028-react-query-hooks-design.md) | React Query hooks generator design (v0.2) | Accepted |
 | [0029](0029-watch-mode-design.md) | `--watch` mode design (v0.2) | Accepted |
+| [0030](0030-framework-adapter-selection.md) | Framework-adapter selection mechanism and structure (v0.2) | Accepted |
