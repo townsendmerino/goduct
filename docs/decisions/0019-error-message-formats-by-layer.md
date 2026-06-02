@@ -2,6 +2,9 @@
 
 **Status:** Accepted
 **Date:** 2026-05-17
+**Amended:** 2026-06-02 — Implementation note: annotation and loader
+prefixes normalized to the Format A template (TODO.md item closed).
+Decision unchanged.
 
 ## Context
 
@@ -97,3 +100,14 @@ errors are single-line and belong to the Format A *category*, but their
 existing prefixes/positions are not byte-identical to the Format A template
 (see TODO.md) — normalizing them is a pre-v0.1 cleanup, not a change this
 ADR requires.
+
+**Update (2026-06-02, post-v0.1.0 polish):** the annotation and loader
+prefixes have been normalized to the strict Format A template
+`goduct: <file>:<line>:<col>: <msg>`. `annotations.go`'s parser-level
+`fail` now omits the `goduct:` prefix and the caller (`routes.go`)
+prepends `goduct: <pos>:` from the function's Pos; the in-doc-block
+`(line N): <src>` suffix is retained so users can locate the directive
+inside a long godoc comment. `loader.go`'s `formatPkgError` emits
+`goduct: <pos>: <msg>` directly (no per-package-ID wrapper, no
+`[<kind>]` infix); positionless errors fall back to `-` as the position
+field. The corresponding TODO.md item is closed.

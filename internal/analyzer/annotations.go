@@ -70,13 +70,15 @@ func ParseDirectives(doc string) (Directives, error) {
 }
 
 // apply records one directive or returns a contextual error. line is the
-// 1-based line number within the block and src the offending line; with no
-// filename available here, that is the most file:line-style context we can
-// give. seen tracks directives already applied so a repeat fails fast
-// rather than silently overwriting.
+// 1-based line number within the block and src the offending line. The
+// parser has no absolute filename here; the caller (routes.go) prepends
+// the ADR 0019 Format A prefix `goduct: <file>:<line>:<col>: ` from the
+// function's Pos. The `(line N): <src>` suffix keeps the in-doc-block
+// coordinate so users can find the directive inside a long godoc comment.
+// seen tracks directives already applied so a repeat fails fast.
 func (d *Directives) apply(name, args string, line int, src string, seen map[string]bool) error {
 	fail := func(msg string) error {
-		return fmt.Errorf("goduct: %s (line %d): %s", msg, line, src)
+		return fmt.Errorf("%s (line %d): %s", msg, line, src)
 	}
 	if seen[name] {
 		return fail("duplicate " + directivePrefix + name + " directive")

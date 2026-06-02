@@ -70,12 +70,8 @@ func Load(patterns []string, opts LoadOptions) ([]*packages.Package, error) {
 
 	var errs []error
 	for _, pkg := range pkgs {
-		id := pkg.PkgPath
-		if id == "" {
-			id = pkg.ID
-		}
 		for _, e := range pkg.Errors {
-			errs = append(errs, fmt.Errorf("%s: %s", id, formatPkgError(e)))
+			errs = append(errs, errors.New(formatPkgError(e)))
 		}
 	}
 	if len(errs) > 0 {
@@ -85,21 +81,15 @@ func Load(patterns []string, opts LoadOptions) ([]*packages.Package, error) {
 	return pkgs, nil
 }
 
-// formatPkgError renders a packages.Error with its kind and position so the
-// caller gets a file:line:col pointer, not just a bare message.
+// formatPkgError renders a packages.Error in the ADR 0019 Format A
+// template `goduct: <file>:<line>:<col>: <msg>`. For ListError (and
+// any other case the go/packages loader produces without a position),
+// e.Pos is empty; the conventional `-` placeholder fills the position
+// field so the prefix shape stays uniform.
 func formatPkgError(e packages.Error) string {
-	kind := "error"
-	switch e.Kind {
-	case packages.ListError:
-		kind = "list"
-	case packages.ParseError:
-		kind = "parse"
-	case packages.TypeError:
-		kind = "type"
-	}
 	pos := e.Pos
 	if pos == "" {
 		pos = "-"
 	}
-	return fmt.Sprintf("[%s] %s: %s", kind, pos, e.Msg)
+	return fmt.Sprintf("goduct: %s: %s", pos, e.Msg)
 }

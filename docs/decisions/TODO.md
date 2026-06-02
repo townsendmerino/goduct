@@ -12,25 +12,6 @@ This is not an ADR — ADRs record decisions; this records implied work
 not yet done. Remove an item when it is reconciled (and, if it required
 a decision, record that decision in an ADR).
 
-## [ ] Normalize Format A error prefixes
-
-[ADR 0019](0019-error-message-formats-by-layer.md) settles the A-vs-B
-question (two formats by layer, divergence accepted by design). One
-residual: not every Format A emitter matches the template
-byte-for-byte:
-
-- `annotations.go` emits: `goduct: <msg> (line N): <src>`
-- `loader.go` emits: `<pkgpath>: [<kind>] <file:line:col>: <msg>`
-- ADR 0019's Format A template: `goduct: <file>:<line>:<col>: <msg>`
-- Route discovery (`internal/analyzer/routes.go`) already matches it.
-
-**Non-blocking:** ADR 0019's Implementation note explicitly
-pre-authorizes shipping with the existing prefixes ("normalizing them
-is a pre-v0.1 cleanup, not a change this ADR requires"). They are
-Format-A *category*, just not byte-identical. **Trigger / action:** if
-normalized it is a code change — record the choice in ADR 0019's
-Implementation note (or a short follow-up ADR).
-
 ## [ ] Audit `*types.Type` kind switches for Alias unwrapping
 
 Go 1.22+ alias types (`*types.Alias`, default in 1.24+) mean a type
