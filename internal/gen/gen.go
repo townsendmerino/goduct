@@ -208,3 +208,46 @@ func AdapterWireZod(wire string) string {
 // AdapterWires is the set of valid ADR 0032 wire-shape strings, used by
 // the CLI to validate --adapter values before invoking the analyzer.
 var AdapterWires = []string{"string", "number", "boolean", "unknown"}
+
+// TypeParamDecl renders one type-param + optional constraint as a TS
+// declaration fragment (the bit that goes inside `<...>` on
+// `interface Foo<T extends X>`). render is the generator-local function
+// that turns each constraint term into its TS spelling — passed in
+// rather than inlined here per ADR 0022 §6 (each generator owns its
+// target-language type-string rules). Terms are deduplicated in
+// source order so [T int | int64] collapses to `<T extends number>`.
+//
+// param is the type-param name (e.g. "T"); constraint is the IR
+// TypeRef (nil for `any`, KindUnion for multi-term, anything else
+// for a single-term constraint). Returns "T" for any-constrained,
+// "T extends X" for constrained.
+//
+// v0.4 per ADR 0036.
+func TypeParamDecl(param string, constraint *ir.TypeRef, render func(ir.TypeRef) string) string {
+	if constraint == nil {
+		return param
+	}
+	terms := []ir.TypeRef{*constraint}
+	if constraint.Kind == ir.KindUnion {
+		terms = nil
+		for _, t := range constraint.UnionTerms {
+			if t != nil {
+				terms = append(terms, *t)
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(terms))
+	var rendered []string
+	for _, t := range terms {
+		s := render(t)
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		rendered = append(rendered, s)
+	}
+	if len(rendered) == 0 {
+		return param
+	}
+	return param + " extends " + strings.Join(rendered, " | ")
+}

@@ -121,3 +121,56 @@ func TestTSType(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerate_ConstrainedGeneric drives the end-to-end declaration
+// rendering for ADR 0036: a struct generic over a type-union constraint
+// must surface in TS as `<T extends number>` (dedup applied).
+func TestGenerate_ConstrainedGeneric(t *testing.T) {
+	intRef := &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "int"}
+	int64Ref := &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "int64"}
+	stringRef := &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}
+	api := &ir.API{Types: map[string]ir.TypeDef{
+		"x/svc.Box": {
+			QualifiedName: "x/svc.Box",
+			Name:          "Box",
+			Kind:          ir.TypeStruct,
+			TypeParams:    []string{"T"},
+			TypeParamConstraints: []*ir.TypeRef{
+				{Kind: ir.KindUnion, UnionTerms: []*ir.TypeRef{intRef, int64Ref}},
+			},
+			Fields: []ir.Field{{
+				GoName: "V", JSONName: "v", Source: ir.FieldSourceJSON,
+				Type: ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"},
+			}},
+			Pos: "f.go:1:6",
+		},
+		"x/svc.Pair": {
+			QualifiedName: "x/svc.Pair",
+			Name:          "Pair",
+			Kind:          ir.TypeStruct,
+			TypeParams:    []string{"K", "V"},
+			TypeParamConstraints: []*ir.TypeRef{
+				{Kind: ir.KindBuiltin, Builtin: "string"},
+				{Kind: ir.KindUnion, UnionTerms: []*ir.TypeRef{intRef, stringRef}},
+			},
+			Fields: []ir.Field{
+				{GoName: "K", JSONName: "k", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "K"}},
+				{GoName: "V", JSONName: "v", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "V"}},
+			},
+			Pos: "f.go:2:6",
+		},
+	}}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "export interface Box<T extends number> {") {
+		t.Errorf("missing dedup'd union constraint; output:\n%s", out)
+	}
+	if !strings.Contains(out, "export interface Pair<K extends string, V extends number | string> {") {
+		t.Errorf("missing multi-param mixed constraint rendering; output:\n%s", out)
+	}
+}

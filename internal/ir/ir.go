@@ -149,6 +149,11 @@ type TypeRef struct {
 	// TypeParams order. v0.3 per ADR 0033.
 	TypeArgs []*TypeRef
 
+	// UnionTerms is set when Kind == KindUnion (a generic type-param
+	// constraint of the `T int | int64` shape). Order matches the
+	// source declaration. v0.4 per ADR 0036.
+	UnionTerms []*TypeRef
+
 	// Optional means "may be absent / null". Set by pointer-ness or
 	// omitempty at the use site.
 	Optional bool
@@ -165,6 +170,10 @@ const (
 	// type's field list (the T in `[]T` inside Page[T any]'s body).
 	// Carries the param name in TypeRef.TypeParam. v0.3 per ADR 0033.
 	KindTypeParam
+	// KindUnion: a type-union, used as a generic type-param constraint
+	// in TypeDef.TypeParamConstraints. UnionTerms holds the individual
+	// term TypeRefs in source order. v0.4 per ADR 0036.
+	KindUnion
 )
 
 // TypeDef is a named user type that needs to be rendered in the output.
@@ -193,6 +202,14 @@ type TypeDef struct {
 	// nil/empty for non-generic types. Order matches the source
 	// declaration. v0.3 per ADR 0033.
 	TypeParams []string
+
+	// TypeParamConstraints is parallel-indexed to TypeParams: the
+	// constraint applying to TypeParams[i] is TypeParamConstraints[i],
+	// or nil for an `any` constraint. A single-term constraint is a
+	// bare TypeRef (e.g. {Kind: KindBuiltin, Builtin: "int"}); a
+	// multi-term union is {Kind: KindUnion, UnionTerms: [...]}. v0.4
+	// per ADR 0036.
+	TypeParamConstraints []*TypeRef
 
 	Doc string
 	Pos string

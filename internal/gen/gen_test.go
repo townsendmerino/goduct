@@ -198,6 +198,70 @@ func TestAdapterWireTables(t *testing.T) {
 	}
 }
 
+// TestTypeParamDecl covers ADR 0036's TS-side constraint rendering: nil
+// constraint → bare param; single-term → "T extends X"; union → joined
+// with " | "; union terms that render to the same TS spelling collapse.
+// The renderer is generator-supplied; here we use a trivial stub that
+// maps a couple of Go builtins to their TS spellings.
+func TestTypeParamDecl(t *testing.T) {
+	render := func(r ir.TypeRef) string {
+		if r.Kind == ir.KindBuiltin {
+			switch r.Builtin {
+			case "int", "int64", "float64":
+				return "number"
+			case "string":
+				return "string"
+			case "bool":
+				return "boolean"
+			}
+		}
+		if r.Kind == ir.KindNamed {
+			if i := strings.LastIndex(r.Named, "."); i >= 0 {
+				return r.Named[i+1:]
+			}
+			return r.Named
+		}
+		return "?"
+	}
+	cases := []struct {
+		name       string
+		param      string
+		constraint *ir.TypeRef
+		want       string
+	}{
+		{"any constraint (nil)", "T", nil, "T"},
+		{"single builtin",
+			"T", &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "int"},
+			"T extends number"},
+		{"single named",
+			"T", &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.User"},
+			"T extends User"},
+		{"union int|int64 dedups to number",
+			"T", &ir.TypeRef{Kind: ir.KindUnion, UnionTerms: []*ir.TypeRef{
+				{Kind: ir.KindBuiltin, Builtin: "int"},
+				{Kind: ir.KindBuiltin, Builtin: "int64"},
+			}}, "T extends number"},
+		{"union int|string keeps both",
+			"T", &ir.TypeRef{Kind: ir.KindUnion, UnionTerms: []*ir.TypeRef{
+				{Kind: ir.KindBuiltin, Builtin: "int"},
+				{Kind: ir.KindBuiltin, Builtin: "string"},
+			}}, "T extends number | string"},
+		{"union with three terms, two collapse",
+			"T", &ir.TypeRef{Kind: ir.KindUnion, UnionTerms: []*ir.TypeRef{
+				{Kind: ir.KindBuiltin, Builtin: "int"},
+				{Kind: ir.KindBuiltin, Builtin: "int64"},
+				{Kind: ir.KindBuiltin, Builtin: "float64"},
+			}}, "T extends number"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := TypeParamDecl(c.param, c.constraint, render); got != c.want {
+				t.Errorf("TypeParamDecl = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 func TestMethodName(t *testing.T) {
 	cases := []struct {
 		handler, tag, want string

@@ -35,12 +35,22 @@ func renderType(td ir.TypeDef, adapters map[string]string) string {
 	if d := gen.JSDoc(td.Name, td.Doc); d != "" {
 		s.WriteString("/** " + d + " */\n")
 	}
-	// ADR 0033: emit the type-param list on the declaration. Generic
-	// enums and aliases are out of scope (see ADR 0033 §2); the
-	// analyzer rejects them upstream.
+	// ADR 0033: emit the type-param list on the declaration. ADR 0036:
+	// each param may carry a constraint (`<T extends number>`),
+	// deduplicated across the union's terms by TS render.
 	tparams := ""
 	if len(td.TypeParams) > 0 {
-		tparams = "<" + strings.Join(td.TypeParams, ", ") + ">"
+		decls := make([]string, len(td.TypeParams))
+		for i, p := range td.TypeParams {
+			var c *ir.TypeRef
+			if i < len(td.TypeParamConstraints) {
+				c = td.TypeParamConstraints[i]
+			}
+			decls[i] = gen.TypeParamDecl(p, c, func(r ir.TypeRef) string {
+				return tsType(r, adapters)
+			})
+		}
+		tparams = "<" + strings.Join(decls, ", ") + ">"
 	}
 	switch td.Kind {
 	case ir.TypeStruct:

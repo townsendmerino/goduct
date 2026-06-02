@@ -171,8 +171,10 @@ func TestDiscoverTypes_Generics_SingleAndMultiParam(t *testing.T) {
 	})
 }
 
-func TestDiscoverTypes_Generics_ConstraintLoudFail(t *testing.T) {
-	// Constraint other than `any` -> C1 loud-fail per ADR 0033 §1.
+// TestDiscoverTypes_Generics_UnionConstraint_Accepted (ADR 0036):
+// type-union constraints used to loud-fail in v0.3 — v0.4 accepts
+// them and captures the union shape in TypeParamConstraints.
+func TestDiscoverTypes_Generics_UnionConstraint_Accepted(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		"go.mod": "module svc\n\ngo 1.26\n",
@@ -196,15 +198,131 @@ type R struct {
 func GetBox(ctx context.Context, req R) (*Box[int], error) { return nil, nil }
 `,
 	})
-	_, err := Analyze([]string{"."}, LoadOptions{Dir: dir})
-	if err == nil {
-		t.Fatal("expected C1 error for non-any constraint, got nil")
+	api, err := Analyze([]string{"."}, LoadOptions{Dir: dir})
+	if err != nil {
+		t.Fatalf("expected union constraint to be accepted, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "C1") {
-		t.Errorf("error should be C1: %v", err)
+	td, ok := api.Types["svc.Box"]
+	if !ok {
+		t.Fatal("svc.Box not in api.Types")
 	}
-	if !strings.Contains(err.Error(), "other than `any`") {
-		t.Errorf("error should name the constraint limit: %v", err)
+	if len(td.TypeParams) != 1 || td.TypeParams[0] != "T" {
+		t.Errorf("TypeParams = %v, want [T]", td.TypeParams)
+	}
+	if len(td.TypeParamConstraints) != 1 {
+		t.Fatalf("TypeParamConstraints len = %d, want 1", len(td.TypeParamConstraints))
+	}
+	c := td.TypeParamConstraints[0]
+	if c == nil {
+		t.Fatal("constraint is nil; expected union")
+	}
+	if c.Kind != ir.KindUnion {
+		t.Errorf("constraint Kind = %v, want KindUnion", c.Kind)
+	}
+	if len(c.UnionTerms) != 3 {
+		t.Fatalf("UnionTerms len = %d, want 3", len(c.UnionTerms))
+	}
+	wantBuiltins := []string{"int", "int64", "float64"}
+	for i, w := range wantBuiltins {
+		if c.UnionTerms[i].Kind != ir.KindBuiltin || c.UnionTerms[i].Builtin != w {
+			t.Errorf("UnionTerms[%d] = %+v, want builtin %s", i, c.UnionTerms[i], w)
+		}
+	}
+}
+
+// TestDiscoverTypes_Generics_SingleTypeConstraint: [T int] (no
+// union notation) normalizes to a single-term bare TypeRef (not
+// wrapped in KindUnion).
+func TestDiscoverTypes_Generics_SingleTypeConstraint(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"go.mod": "module svc\n\ngo 1.26\n",
+		"f.go": `package svc
+
+import "context"
+
+type IntBox[T int] struct { V T ` + "`json:\"v\"`" + ` }
+type R struct { ID string ` + "`path:\"id\" validate:\"required\"`" + ` }
+
+// goduct:route GET /b/:id
+func GetB(ctx context.Context, req R) (*IntBox[int], error) { return nil, nil }
+`,
+	})
+	api, err := Analyze([]string{"."}, LoadOptions{Dir: dir})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	c := api.Types["svc.IntBox"].TypeParamConstraints[0]
+	if c == nil || c.Kind != ir.KindBuiltin || c.Builtin != "int" {
+		t.Errorf("single-term constraint = %+v, want bare builtin int", c)
+	}
+}
+
+// TestDiscoverTypes_Generics_ConstraintLoudFails covers the three
+// constraint shapes still rejected in v0.4 per ADR 0036:
+// method-bearing interfaces, `comparable`, and `~`-tilde terms.
+func TestDiscoverTypes_Generics_ConstraintLoudFails(t *testing.T) {
+	cases := []struct {
+		name, src, wantSub string
+	}{
+		{
+			"method-bearing interface",
+			`package svc
+import (
+	"context"
+	"fmt"
+)
+
+type Box[T fmt.Stringer] struct { V T ` + "`json:\"v\"`" + ` }
+type R struct { ID string ` + "`path:\"id\" validate:\"required\"`" + ` }
+
+// goduct:route GET /b/:id
+func GetB(ctx context.Context, req R) (*Box[fmt.Stringer], error) { return nil, nil }
+`,
+			"method-bearing",
+		},
+		{
+			"comparable",
+			`package svc
+import "context"
+
+type Box[T comparable] struct { V T ` + "`json:\"v\"`" + ` }
+type R struct { ID string ` + "`path:\"id\" validate:\"required\"`" + ` }
+
+// goduct:route GET /b/:id
+func GetB(ctx context.Context, req R) (*Box[int], error) { return nil, nil }
+`,
+			"comparable",
+		},
+		{
+			"tilde-form",
+			`package svc
+import "context"
+
+type Box[T ~int] struct { V T ` + "`json:\"v\"`" + ` }
+type R struct { ID string ` + "`path:\"id\" validate:\"required\"`" + ` }
+
+// goduct:route GET /b/:id
+func GetB(ctx context.Context, req R) (*Box[int], error) { return nil, nil }
+`,
+			"tilde",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, map[string]string{
+				"go.mod": "module svc\n\ngo 1.26\n",
+				"f.go":   c.src,
+			})
+			_, err := Analyze([]string{"."}, LoadOptions{Dir: dir})
+			if err == nil {
+				t.Fatal("expected loud-fail, got nil")
+			}
+			if !strings.Contains(err.Error(), c.wantSub) {
+				t.Errorf("error should mention %q, got: %v", c.wantSub, err)
+			}
+		})
 	}
 }
 

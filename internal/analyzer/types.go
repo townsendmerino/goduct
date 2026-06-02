@@ -129,21 +129,23 @@ func visitType(pkg *packages.Package, qname string, reqNames map[string]bool, en
 	doc, pos := typeDocPos(pkg, n)
 	base := ir.TypeDef{QualifiedName: qname, Name: n.Obj().Name(), Doc: doc, Pos: pos}
 
-	// ADR 0033: capture type-parameter names for generic types. Only
-	// `any` constraints are supported in v0.3 (a non-`any` constraint
-	// is loud-failed). The TypeParams slice flows to generators so
-	// they can render `interface Page<T>` / factory functions etc.
+	// ADR 0033 + ADR 0036: capture type-parameter names AND their
+	// constraints for generic types. v0.4 supports `any` (constraint
+	// = nil) and type-union constraints (`[T int | int64]`); method-
+	// bearing interface constraints, `comparable`, and `~`-tilde
+	// approximation terms still loud-fail.
 	if tp := n.TypeParams(); tp != nil && tp.Len() > 0 {
 		for i := 0; i < tp.Len(); i++ {
 			p := tp.At(i)
-			if !isAnyConstraint(p.Constraint()) {
-				*errs = append(*errs, formatTypeErr(pkg, n, "C1",
-					"type parameter "+p.Obj().Name()+" on "+n.Obj().Name()+
-						" has a constraint other than `any`; v0.3 only supports `any`-constrained generics",
-					"replace the constraint with `any` (or wait for v0.4)"))
+			constraint, te := extractConstraint(p)
+			if te != nil {
+				*errs = append(*errs, formatTypeErr(pkg, n, te.cat,
+					"type parameter "+p.Obj().Name()+" on "+n.Obj().Name()+": "+te.desc,
+					te.hint))
 				return
 			}
 			base.TypeParams = append(base.TypeParams, p.Obj().Name())
+			base.TypeParamConstraints = append(base.TypeParamConstraints, constraint)
 		}
 	}
 
@@ -292,17 +294,78 @@ func collectNamedDeps(r ir.TypeRef, out *[]string) {
 	}
 }
 
-// isAnyConstraint reports whether c is the empty interface (`any` /
-// `interface{}` / `comparable`-less). v0.3 only supports `any`-typed
-// generic params (ADR 0033 §1); anything else loud-fails. The check
-// walks the constraint's underlying interface and asserts it has no
-// embedded types or methods.
-func isAnyConstraint(c types.Type) bool {
-	iface, ok := c.Underlying().(*types.Interface)
-	if !ok {
-		return false
+// extractConstraint resolves a type-param's constraint into an ir.TypeRef
+// suitable for TypeDef.TypeParamConstraints (ADR 0036). Returns:
+//   - (nil, nil)  → `any` constraint (empty interface).
+//   - (ref, nil)  → a single-type or KindUnion-of-types constraint.
+//   - (nil, te)   → loud-fail (method-bearing, comparable, tilde-form).
+//
+// The walker accepts both Go representations of a single-type
+// constraint (`interface{ int }` arrives as a bare embedded basic
+// OR a 1-term *types.Union; both are normalized here).
+func extractConstraint(p *types.TypeParam) (*ir.TypeRef, *typeErr) {
+	// `comparable` and `any` both produce an underlying interface
+	// with no methods/embeds; the differentiator is the top-level
+	// Constraint type's String() representation. Reject `comparable`
+	// up-front before the empty-interface short-circuit treats it
+	// as `any`.
+	if p.Constraint().String() == "comparable" {
+		return nil, &typeErr{"C1",
+			"the `comparable` constraint is not supported (Go-typesystem-only; no wire mapping)",
+			"use `any` or an explicit type-union constraint like `int | int64`"}
 	}
-	return iface.NumMethods() == 0 && iface.NumEmbeddeds() == 0
+	iface, ok := p.Constraint().Underlying().(*types.Interface)
+	if !ok {
+		return nil, &typeErr{"C1",
+			"constraint underlying is not an interface",
+			"use `any` or a type-union constraint like `int | int64`"}
+	}
+	if iface.NumMethods() > 0 {
+		return nil, &typeErr{"C1",
+			"method-bearing constraints (Stringer, fmt.Stringer, etc.) are not supported in v0.4 — methods don't survive JSON serialization",
+			"use `any` or a type-union constraint like `int | int64`"}
+	}
+	if iface.NumEmbeddeds() == 0 {
+		// empty interface → `any`; nil constraint per the IR contract.
+		return nil, nil
+	}
+	var terms []*ir.TypeRef
+	for i := 0; i < iface.NumEmbeddeds(); i++ {
+		embed := iface.EmbeddedType(i)
+		// Reject the `comparable` predeclared identifier loudly.
+		if named, ok := embed.(*types.Named); ok &&
+			named.Obj().Name() == "comparable" && named.Obj().Pkg() == nil {
+			return nil, &typeErr{"C1",
+				"the `comparable` constraint is not supported (Go-typesystem-only; no wire mapping)",
+				"use `any` or an explicit type-union"}
+		}
+		switch e := embed.(type) {
+		case *types.Union:
+			for j := 0; j < e.Len(); j++ {
+				term := e.Term(j)
+				if term.Tilde() {
+					return nil, &typeErr{"C1",
+						"the `~` tilde-form approximation in type-union constraints is not supported in v0.4",
+						"remove `~` (or wait for v0.5)"}
+				}
+				ref, _, te := fieldTypeRef(term.Type())
+				if te != nil {
+					return nil, te
+				}
+				terms = append(terms, &ref)
+			}
+		default:
+			ref, _, te := fieldTypeRef(embed)
+			if te != nil {
+				return nil, te
+			}
+			terms = append(terms, &ref)
+		}
+	}
+	if len(terms) == 1 {
+		return terms[0], nil
+	}
+	return &ir.TypeRef{Kind: ir.KindUnion, UnionTerms: terms}, nil
 }
 
 // resolveNamed returns the *types.Named for a full-path qualified name, or
