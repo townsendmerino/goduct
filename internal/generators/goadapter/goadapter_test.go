@@ -75,6 +75,69 @@ func TestGenerate_Golden(t *testing.T) {
 	}
 }
 
+// TestGenerateFramework_RawMode (ADR 0031): raw routes register the
+// user's function directly (no `handle<Name>` wrapper); chi/mux
+// support raw; gin/echo loud-fail. Built from a synthetic IR so
+// chi-basic goldens stay focused on idiomatic mode.
+func TestGenerateFramework_RawMode(t *testing.T) {
+	rawAPI := &ir.API{
+		SourceDirs: map[string]string{"pkg": "/tmp/pkg"},
+		Routes: []ir.Route{{
+			HandlerName:   "RawPing",
+			Method:        "GET",
+			Path:          "/ping",
+			Tag:           "ping",
+			Mode:          ir.ModeRaw,
+			Pos:           "/tmp/pkg/raw.go:1:1",
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.PingRequest"},
+			ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Pong"},
+			SuccessStatus: 200,
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.PingRequest": {QualifiedName: "pkg.PingRequest", Name: "PingRequest", Kind: ir.TypeStruct},
+			"pkg.Pong":        {QualifiedName: "pkg.Pong", Name: "Pong", Kind: ir.TypeStruct},
+		},
+	}
+	t.Run("chi raw routes register directly, no wrapper", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := GenerateFramework(rawAPI, &buf, "chi"); err != nil {
+			t.Fatalf("GenerateFramework chi: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, `r.Get("/ping", RawPing)`) {
+			t.Errorf("chi raw output missing direct register %q:\n%s", `r.Get("/ping", RawPing)`, out)
+		}
+		if strings.Contains(out, "func handleRawPing(") {
+			t.Errorf("chi raw output unexpectedly contains a wrapper:\n%s", out)
+		}
+	})
+	t.Run("mux raw routes register directly, no wrapper", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := GenerateFramework(rawAPI, &buf, "mux"); err != nil {
+			t.Fatalf("GenerateFramework mux: %v", err)
+		}
+		out := buf.String()
+		if !strings.Contains(out, `r.HandleFunc("GET /ping", RawPing)`) {
+			t.Errorf("mux raw output missing direct register:\n%s", out)
+		}
+		if strings.Contains(out, "func handleRawPing(") {
+			t.Errorf("mux raw output unexpectedly contains a wrapper:\n%s", out)
+		}
+	})
+	for _, fw := range []string{"gin", "echo"} {
+		t.Run(fw+" raw routes loud-fail (ADR 0031 §3)", func(t *testing.T) {
+			var buf bytes.Buffer
+			err := GenerateFramework(rawAPI, &buf, fw)
+			if err == nil {
+				t.Fatalf("%s: expected error for raw mode, got nil", fw)
+			}
+			if !strings.Contains(err.Error(), "raw http.HandlerFunc mode") {
+				t.Errorf("%s: error = %q, want substring 'raw http.HandlerFunc mode'", fw, err)
+			}
+		})
+	}
+}
+
 // TestGenerateFramework_UnknownErrors: bad framework name is a clear
 // error, not a panic — the CLI maps it to exit 2 (ADR 0030 §1).
 func TestGenerateFramework_UnknownErrors(t *testing.T) {

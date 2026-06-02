@@ -61,6 +61,30 @@ that exercises these, then convert to golden assertions.
   `"<wire> must be a boolean"` / `"<wire> must be a number"`). Golden
   exercises only `int` (`ListUsers.Limit` via `strconv.Atoi`).
 
+## [ ] Raw http.HandlerFunc mode: chi-basic golden coverage
+
+[ADR 0031](0031-raw-handlerfunc-mode.md) ships the analyzer + goadapter
+support for `ir.ModeRaw` with unit-test coverage on synthetic packages.
+chi-basic stays idiomatic-only — adding a raw handler would touch every
+TS golden (types.ts, schemas.ts, client.ts, hooks.ts) and all four
+goadapter goldens (chi, gin, echo, mux — the latter two would also
+need their loud-fail behavior confirmed end-to-end).
+
+**Trigger / action:** add either (a) one raw handler to chi-basic with
+the full golden update sweep, or (b) a focused `examples/raw-basic/`
+example. Either route exercises the raw path end-to-end. Spec-trust
+applies until then.
+
+## [ ] gin/echo raw-mode support
+
+ADR 0031 §3 defers gin/echo raw mode: their handler signatures
+(`func(c *gin.Context)`, `func(c echo.Context) error`) don't match
+`http.HandlerFunc`, so the user's raw handler can't be registered
+directly. v0.2 loud-fails; v0.3+ could synthesize a small adapter
+that converts each framework's context to `(w, r)` and calls the
+user's function. **Risk: low** — most users picking raw mode are
+already on chi/mux for the `http.HandlerFunc` shape.
+
 ## [ ] goadapter: custom status-code mapping incomplete
 
 goadapter's `http.Status*` mapping covers 200/201/204 — the only codes

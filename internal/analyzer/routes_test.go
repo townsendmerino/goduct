@@ -264,3 +264,117 @@ func TestDiscoverRoutes_Errors(t *testing.T) {
 		})
 	}
 }
+
+// TestDiscoverRoutes_Raw exercises ADR 0031 raw-mode discovery on
+// synthetic packages — chi-basic stays idiomatic.
+func TestDiscoverRoutes_Raw(t *testing.T) {
+	t.Run("body-route raw handler", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFiles(t, dir, map[string]string{
+			"go.mod": "module raw\n\ngo 1.26\n",
+			"raw.go": `package raw
+
+import "net/http"
+
+type CreateThingRequest struct {
+	Name string ` + "`json:\"name\" validate:\"required\"`" + `
+}
+type Thing struct {
+	ID   string ` + "`json:\"id\"`" + `
+	Name string ` + "`json:\"name\"`" + `
+}
+
+// goduct:route    POST /things
+// goduct:request  CreateThingRequest
+// goduct:response Thing
+// goduct:status   201
+func CreateThing(w http.ResponseWriter, r *http.Request) {
+}
+`,
+		})
+		pkgs, err := Load([]string{"."}, LoadOptions{Dir: dir})
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		routes, err := DiscoverRoutes(pkgs[0])
+		if err != nil {
+			t.Fatalf("DiscoverRoutes: %v", err)
+		}
+		if len(routes) != 1 {
+			t.Fatalf("got %d routes, want 1", len(routes))
+		}
+		rt := routes[0]
+		if rt.Mode != ir.ModeRaw {
+			t.Errorf("Mode = %v, want ModeRaw", rt.Mode)
+		}
+		if rt.RequestType == nil || rt.RequestType.Named != "raw.CreateThingRequest" {
+			t.Errorf("RequestType = %+v, want raw.CreateThingRequest", rt.RequestType)
+		}
+		if rt.BodyType == nil || rt.BodyType.Named != "raw.CreateThingRequest" {
+			t.Errorf("BodyType = %+v, want raw.CreateThingRequest (POST body)", rt.BodyType)
+		}
+		if rt.ResponseType == nil || rt.ResponseType.Named != "raw.Thing" {
+			t.Errorf("ResponseType = %+v, want raw.Thing", rt.ResponseType)
+		}
+		if rt.SuccessStatus != 201 {
+			t.Errorf("Status = %d, want 201", rt.SuccessStatus)
+		}
+	})
+
+	errCases := []struct {
+		name, body, wantSub string
+	}{
+		{
+			"missing goduct:request",
+			`package raw
+import "net/http"
+type Thing struct { ID string ` + "`json:\"id\"`" + ` }
+// goduct:route GET /things
+func GetThings(w http.ResponseWriter, r *http.Request) {}
+`,
+			"raw http.HandlerFunc mode requires `goduct:request <Type>`",
+		},
+		{
+			"goduct:request type not found",
+			`package raw
+import "net/http"
+// goduct:route   POST /things
+// goduct:request DoesNotExist
+func CreateThing(w http.ResponseWriter, r *http.Request) {}
+`,
+			"goduct:request type DoesNotExist not found",
+		},
+		{
+			"goduct:request on idiomatic handler is rejected",
+			`package raw
+import "context"
+type R struct{}
+type U struct{ ID string ` + "`json:\"id\"`" + ` }
+// goduct:route   POST /x
+// goduct:request R
+func Idio(ctx context.Context, r R) (*U, error) { return nil, nil }
+`,
+			"directives are not allowed on idiomatic handlers",
+		},
+	}
+	for _, tc := range errCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, map[string]string{
+				"go.mod": "module raw\n\ngo 1.26\n",
+				"raw.go": tc.body,
+			})
+			pkgs, err := Load([]string{"."}, LoadOptions{Dir: dir})
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			_, err = DiscoverRoutes(pkgs[0])
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantSub)
+			}
+			if !strings.Contains(err.Error(), tc.wantSub) {
+				t.Errorf("error = %q, want substring %q", err.Error(), tc.wantSub)
+			}
+		})
+	}
+}

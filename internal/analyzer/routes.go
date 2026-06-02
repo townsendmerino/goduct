@@ -82,7 +82,27 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 	}
 
 	sig, ok := pkg.TypesInfo.Defs[fn.Name].Type().(*types.Signature)
-	if !ok || sig.Params().Len() != 2 {
+	if !ok {
+		return fail("handler %s: missing signature info", name)
+	}
+
+	// ADR 0031: branch on raw vs idiomatic signature.
+	// func(http.ResponseWriter, *http.Request) -> raw mode (needs
+	// goduct:request/response annotations); anything else falls
+	// through to the idiomatic shape validation below.
+	if isRawHandlerSig(sig) {
+		return discoverRawHandler(pkg, fn, dirs)
+	}
+
+	// Idiomatic mode forbids goduct:request/response (the types are in
+	// the signature; the annotation would be a second source of truth
+	// per ADR 0031 §1).
+	if dirs.Request != "" || dirs.Response != "" {
+		return fail("handler %s: goduct:request/response directives are not allowed on idiomatic handlers "+
+			"(use them only with the raw http.HandlerFunc signature, ADR 0031)", name)
+	}
+
+	if sig.Params().Len() != 2 {
 		return fail("handler %s must be func(context.Context, T) (*U, error) or func(context.Context, T) error", name)
 	}
 	if !isContextContext(sig.Params().At(0).Type()) {

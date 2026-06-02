@@ -74,3 +74,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0028](0028-react-query-hooks-design.md) | React Query hooks generator design (v0.2) | Accepted |
 | [0029](0029-watch-mode-design.md) | `--watch` mode design (v0.2) | Accepted |
 | [0030](0030-framework-adapter-selection.md) | Framework-adapter selection mechanism and structure (v0.2) | Accepted |
+| [0031](0031-raw-handlerfunc-mode.md) | Raw `http.HandlerFunc` mode (v0.2) | Accepted |
