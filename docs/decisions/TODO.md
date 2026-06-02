@@ -113,6 +113,42 @@ root (e.g. `goduct.toml`); CLI `--adapter` extends/overrides the file.
 Compose: file is the project default; flag is the per-invocation
 override.
 
+## [ ] Generics: chi-basic golden coverage
+
+[ADR 0033](0033-generics.md) ships generic-type recognition + rendering
+across all four TS generators with synthetic-test coverage
+(internal/analyzer/generics_test.go). chi-basic itself uses no
+generics — adding e.g. `Page[User]` would touch every TS golden +
+all 4 adapter goldens. Same shape as the raw-HandlerFunc and adapter
+coverage gaps.
+
+**Trigger / action:** refactor chi-basic's `ListUsersResponse` into
+`Page[User]` (or add a separate `examples/generics-basic/`), update
+the affected goldens, and assert the end-to-end pipeline produces the
+parametric output. Spec-trust applies until then.
+
+## [ ] Generics: non-`any` constraints
+
+ADR 0033 §1 ships with `any`-only constraints for v0.3 simplicity. A
+generic with a `[T Stringer]`-style or `[T int | int64]` union
+constraint loud-fails with C1.
+
+**Trigger / action (v0.4 if motivated):** map non-`any` constraints
+into TS `<T extends X>` where X is renderable in goduct's type system.
+Adds non-trivial complexity around constraint inheritance and
+rendering. Risk: medium — most HTTP API types use `any` constraints
+anyway.
+
+## [ ] Generics: generic enums + aliases
+
+ADR 0033 §2 caps v0.3 to generic structs. `type Status[T any] string`
+and `type Opt[T any] = *T` loud-fail. Rare in practice but a real
+limit.
+
+**Trigger / action:** lift when real usage surfaces. Generic enums
+require TS-side renaming of literal unions per instantiation; generic
+aliases need factory-style emission in both tstypes and zod.
+
 ## [ ] goadapter: custom status-code mapping incomplete
 
 goadapter's `http.Status*` mapping covers 200/201/204 — the only codes

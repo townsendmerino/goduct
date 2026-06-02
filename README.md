@@ -303,7 +303,9 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **Known v0.2 polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
 
-**Not yet supported (planned):** generics; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
+**Generics:** `type Page[T any] struct{...}` and instantiations like `*Page[User]` work end-to-end ([ADR 0033](docs/decisions/0033-generics.md)). Multi-param (`Result[T, E]`) supported. Type-param constraints are `any`-only in v0.3; non-`any` constraints loud-fail. Generic enums/aliases and generic handler signatures themselves are out of scope.
+
+**Not yet supported (planned):** SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
 
 ---
 
@@ -339,7 +341,7 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.2** (this release) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`).
 
-**v0.3** — Generics in request/response types, OpenAPI 3.1 export, Swagger UI generator, Postman collection export.
+**v0.3** (in progress on `main`) — Generics in request/response types (shipped). Remaining for v0.3 tag: OpenAPI 3.1 export, Swagger UI generator, Postman collection export.
 
 **v0.4** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
 
