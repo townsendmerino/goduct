@@ -155,6 +155,49 @@ func TestPackageName(t *testing.T) {
 	}
 }
 
+// TestAdapterWireTables covers ADR 0032's wire-shape -> target-language
+// helpers. Both tables share the same 4-entry domain (string/number/
+// boolean/unknown); an unknown wire returns "" so callers can detect
+// and panic with the offending value.
+func TestAdapterWireTables(t *testing.T) {
+	tsCases := map[string]string{
+		"string":  "string",
+		"number":  "number",
+		"boolean": "boolean",
+		"unknown": "unknown",
+		"bogus":   "", // unknown wire -> empty string sentinel
+	}
+	for in, want := range tsCases {
+		if got := AdapterWireTS(in); got != want {
+			t.Errorf("AdapterWireTS(%q) = %q, want %q", in, got, want)
+		}
+	}
+	zodCases := map[string]string{
+		"string":  "z.string()",
+		"number":  "z.number()",
+		"boolean": "z.boolean()",
+		"unknown": "z.unknown()",
+		"bogus":   "",
+	}
+	for in, want := range zodCases {
+		if got := AdapterWireZod(in); got != want {
+			t.Errorf("AdapterWireZod(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// The exported AdapterWires slice is the validation set the CLI
+	// uses to reject bad --adapter flags; assert it matches the
+	// table domain so the CLI and renderer can't drift.
+	want := map[string]bool{"string": true, "number": true, "boolean": true, "unknown": true}
+	if len(AdapterWires) != len(want) {
+		t.Errorf("AdapterWires len = %d, want %d", len(AdapterWires), len(want))
+	}
+	for _, w := range AdapterWires {
+		if !want[w] {
+			t.Errorf("AdapterWires unexpectedly contains %q", w)
+		}
+	}
+}
+
 func TestMethodName(t *testing.T) {
 	cases := []struct {
 		handler, tag, want string
