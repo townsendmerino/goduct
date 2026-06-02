@@ -149,27 +149,40 @@ limit.
 require TS-side renaming of literal unions per instantiation; generic
 aliases need factory-style emission in both tstypes and zod.
 
-## [ ] OpenAPI: Swagger UI generator
+## [ ] Swagger UI: offline / CDN-less mode
 
-[ADR 0034](0034-openapi-export.md) ships the OpenAPI 3.1 spec
-(`--openapi` -> `openapi.json`). Swagger UI is a small static-HTML
-generator that points at the JSON doc — natural follow-up sibling.
+[ADR 0035](0035-openapi-sibling-generators.md) ships `--swagger-ui`
+loading from unpkg.com. Users behind strict CSPs / air-gapped
+networks need an offline mode that bundles or vendors the JS+CSS.
 
-**Trigger / action (v0.3 remainder):** add `--swagger-ui` flag that
-writes a one-file `swagger-ui.html` referencing `./openapi.json` via
-the standard Swagger UI dist (CDN-loaded so no bundled JS bytes).
-Per-route example responses out of scope for v0.3.
+**Trigger / action (v0.4 if a real user surfaces this):** add
+`--swagger-ui-offline` flag that embeds (or vendors alongside) the
+dist files. Pulls goduct into tracking Swagger UI releases, which
+is why v0.3 deferred — accept it when there's a concrete user.
 
-## [ ] OpenAPI: Postman collection export
+## [ ] Postman: realistic example bodies via --openapi-examples
 
-Postman collection v2.1 JSON is a sibling of OpenAPI — most fields
-map directly. Most users will instead import OpenAPI into Postman
-(it speaks the spec); a direct Postman collection generator is for
-teams that want the collection committed in their repo.
+[ADR 0035](0035-openapi-sibling-generators.md) emits
+type-appropriate placeholder values in Postman request bodies
+("" / 0 / false / [] / {} per field). Real-world example values
+(e.g. `email: "alice@example.com"`) would make the collection
+immediately useful — same data would feed OpenAPI's `examples`
+field too.
 
-**Trigger / action (v0.3 remainder):** add `--postman` flag that
-writes `postman_collection.json`. Map routes 1:1 with example
-request bodies derived from the IR type's required fields.
+**Trigger / action (v0.4):** parse `// goduct:example` annotations
+on struct fields (or a goduct.toml mapping), feed both Postman and
+OpenAPI. Sibling to the `--openapi-examples` follow-up below.
+
+## [ ] Postman: separate environment file
+
+[ADR 0035](0035-openapi-sibling-generators.md) emits a single
+collection with a `{{baseUrl}}` variable defaulting to localhost.
+A Postman environment file (separate JSON) typically holds
+per-target overrides (dev/staging/prod). Goduct knows none of those
+targets — they're deploy-specific.
+
+**Trigger / action:** maybe never. Users define their own
+environment files; goduct's collection works as-is.
 
 ## [ ] OpenAPI: info enrichment flags
 

@@ -169,6 +169,8 @@ goduct gen ./api --out ./web/src/api \
   --hooks      \   # hooks.ts             (React Query hooks; peer dep
                    #                       @tanstack/react-query v5)
   --openapi    \   # openapi.json         (OpenAPI 3.1 spec)
+  --swagger-ui \   # swagger-ui.html      (static page; CDN-loaded UI)
+  --postman    \   # postman_collection.json (Postman v2.1 collection)
   --go-adapter     # api/goduct_routes.go (chi wiring, written beside your source)
 ```
 
@@ -217,6 +219,12 @@ Peer dependency: `@tanstack/react-query` v5. The user wraps their app in `<Query
 An OpenAPI 3.1 JSON document describing every route and type, suitable for Swagger UI, Postman, Stoplight, Redoc, or any OpenAPI-aware consumer ([ADR 0034](docs/decisions/0034-openapi-export.md)). Framework-independent — the same `openapi.json` falls out regardless of `--framework`. Generics flatten per-instantiation: `*Page[User]` produces a `Page_User` component schema; `*Page[Result[User, Err]]` produces `Page_Result_User_Err`. Errors surface as a synthesized `GoductError` component referenced by every operation's `default` response.
 
 Convert to YAML downstream if needed (`yq -P openapi.json > openapi.yaml`); goduct emits JSON only to keep its dep footprint tiny.
+
+### `--swagger-ui`
+A one-file static HTML page that loads Swagger UI v5 from the public CDN and points at the sibling `./openapi.json` ([ADR 0035](docs/decisions/0035-openapi-sibling-generators.md)). Drop it next to `openapi.json` on any static host (S3, GitHub Pages, an `nginx` location, your dev server) and you have interactive API docs at zero infra cost. Zero configuration; users with strong opinions edit the HTML themselves.
+
+### `--postman`
+A Postman collection v2.1 ready to import. Routes are grouped into folders by tag; path parameters use Postman's native `:name` syntax; a `{{baseUrl}}` collection variable (default `http://localhost:8080`) is overridable per Postman environment. Body methods get a synthesized JSON example body with type-appropriate placeholders for each wire-visible field (the user fills in real values in Postman). Deterministic `_postman_id` (derived from the package name) means re-generating doesn't churn the file in git.
 
 ### `--go-adapter`
 A `Register(...)` function that wires every handler to the right route, decodes path/query/body into your request struct, and serializes the response. Errors flow through `goduct.WriteError` and produce a consistent wire format. Defaults to chi; pick a framework with `--framework chi|gin|echo|mux` (chi default, [ADR 0030](docs/decisions/0030-framework-adapter-selection.md)):
@@ -347,7 +355,7 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.2** (this release) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`).
 
-**v0.3** (in progress on `main`) — Generics in request/response types (shipped), OpenAPI 3.1 export (`--openapi`, shipped). Remaining for v0.3 tag: Swagger UI generator, Postman collection export.
+**v0.3** (in progress on `main`) — Generics in request/response types, OpenAPI 3.1 export (`--openapi`), Swagger UI page (`--swagger-ui`), Postman collection (`--postman`). All shipped; ready to tag.
 
 **v0.4** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
 
