@@ -12,3 +12,7 @@
 # diverge from them.
 /goduct
 examples/*/api/goduct_routes.go
+
+# Scratch files at the repo root (e.g. /temp.md opened in an IDE).
+/temp.md
+/scratch.md

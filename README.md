@@ -114,7 +114,7 @@ Both are peer dependencies — install the ones for the generators you use.
 
 ## The handler convention
 
-v0.1 supports the **idiomatic** handler style below. A second style — raw `http.HandlerFunc` with annotations — is _planned for v0.2_ ([ADR 0001](docs/decisions/0001-handler-signature-convention.md) / [ADR 0014](docs/decisions/0014-handler-signature-strictness.md)); it is documented here so the planned shape is visible, but the v0.1 analyzer does not yet discover it.
+goduct supports two handler styles. Pick whichever fits your codebase. The **idiomatic** style (recommended) infers everything from the signature. The raw `http.HandlerFunc` style is for existing codebases or finer control; it requires `goduct:request` / `goduct:response` annotations and is supported on chi and `net/http` mux (gin and echo support is deferred — see [ADR 0031](docs/decisions/0031-raw-handlerfunc-mode.md)).
 
 ### Idiomatic (the v0.1 style)
 
@@ -136,9 +136,9 @@ Request struct fields are sourced from tags:
 
 Validation tags use [go-playground/validator](https://github.com/go-playground/validator) syntax and are translated to zod where possible.
 
-### Raw `http.HandlerFunc` _(planned for v0.2 — not available in v0.1)_
+### Raw `http.HandlerFunc`
 
-For existing code or finer control, the planned v0.2 mode annotates a standard handler:
+For existing code or finer control, annotate a standard handler with the request/response types ([ADR 0031](docs/decisions/0031-raw-handlerfunc-mode.md)):
 
 ```go
 // goduct:route    GET /users/:id
@@ -153,7 +153,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-In v0.2, goduct won't be able to verify these annotations match the handler's behavior, so this mode is intended for when you need it, not as the default.
+goduct cannot verify these annotations match the handler's behavior, so this mode is intended for when you need it, not as the default. Supported with `--framework chi` (default) and `--framework mux`; gin and echo loud-fail on raw routes in v0.2.
 
 ---
 
@@ -213,7 +213,23 @@ Mutations on a given tag (e.g. `users`) auto-invalidate the `[tag]` query-key pr
 Peer dependency: `@tanstack/react-query` v5. The user wraps their app in `<QueryClientProvider>` themselves — that is React Query's surface area, not goduct's.
 
 ### `--go-adapter`
-A `Register(chi.Router)` function that wires every handler to the right route, decodes path/query/body into your request struct, runs validation if generated, and serializes the response. Errors flow through `goduct.WriteError` and produce a consistent wire format.
+A `Register(...)` function that wires every handler to the right route, decodes path/query/body into your request struct, and serializes the response. Errors flow through `goduct.WriteError` and produce a consistent wire format. Defaults to chi; pick a framework with `--framework chi|gin|echo|mux` (chi default, [ADR 0030](docs/decisions/0030-framework-adapter-selection.md)):
+
+```bash
+goduct gen ./api --out ./web/src/api --go-adapter --framework gin
+```
+
+Generated output imports the chosen framework (or stdlib for mux on Go 1.22+) and uses its native handler shape. Raw `http.HandlerFunc` handlers ([ADR 0031](docs/decisions/0031-raw-handlerfunc-mode.md)) work with `chi` and `mux`; gin and echo loud-fail on raw routes in v0.2.
+
+## `--watch`
+
+Re-run the requested generators on source-file change:
+
+```bash
+goduct gen ./api --out ./web/src/api --all --watch
+```
+
+Uses `fsnotify` over the source package's directory; debounces 250 ms; ignores `_test.go` and the adapter's own output to avoid regen loops. The first run aborts on error like normal `goduct gen`; subsequent regens during the watch session print errors but keep watching (so transient compile errors mid-edit don't kill the loop). `Ctrl-C` exits cleanly. See [ADR 0029](docs/decisions/0029-watch-mode-design.md).
 
 ---
 
@@ -257,7 +273,7 @@ Wire format is stable:
 
 ## What's supported
 
-**Frameworks:** chi. (gin, echo, std `net/http` mux — _planned for v0.2_.)
+**Frameworks:** chi (default), gin, echo, `net/http` mux (Go 1.22+) — pick one via `--framework chi|gin|echo|mux` ([ADR 0030](docs/decisions/0030-framework-adapter-selection.md)).
 
 **Go types:** primitives, structs, slices, maps with string keys, pointers (`*T` → optional), enums (`type Status string` + consts → TS string union), and these special types ([ADR 0017](docs/decisions/0017-special-stdlib-types.md)):
 
@@ -271,7 +287,7 @@ Wire format is stable:
 
 Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, custom `MarshalJSON`, …) are out of scope for v0.1 — wrap them in a string field and convert at the handler boundary. goduct errors loudly with a `file:line` pointer rather than emitting a wrong wire type — no silent skipping.
 
-**Validation tags** (translated to zod): `required`, `email`, `url`, `min`, `max`, `len`. `oneof` — _planned for v0.2_ ([ADR 0006](docs/decisions/0006-validation-tag-translation.md) specifies it; the v0.1 zod generator does not yet translate it). Tags zod can't express are not enforced client-side but still run server-side via go-playground/validator.
+**Validation tags** (translated to zod): `required`, `email`, `url`, `min`, `max`, `len`, `oneof` (on string fields → `z.enum([...])`). See [ADR 0006](docs/decisions/0006-validation-tag-translation.md). Tags zod can't express are not enforced client-side but still run server-side via go-playground/validator.
 
 **Frontend:** TypeScript types, zod schemas, typed fetch client, React Query hooks ([ADR 0028](docs/decisions/0028-react-query-hooks-design.md); peer dep `@tanstack/react-query` v5).
 
@@ -279,7 +295,7 @@ Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, cus
 
 **Known v0.2 polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
 
-**Not yet supported (planned):** generics; custom `MarshalJSON` / custom type adapters; raw `http.HandlerFunc` mode; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
+**Not yet supported (planned):** generics; custom `MarshalJSON` / custom type adapters; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
 
 ---
 
@@ -313,7 +329,7 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.1** (this release) — chi, idiomatic handlers, types + zod + typed fetch client + go-adapter, basic validation, typed errors.
 
-**v0.2** — Raw `http.HandlerFunc` mode, React Query hooks (`--hooks`), gin + echo + std `net/http` mux, the `oneof` validator, generics, custom type adapters (e.g. `decimal.Decimal` → `string`), `--watch` mode.
+**v0.2** (in progress on `main`) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode. Remaining for v0.2 tag: generics, custom type adapters (e.g. `decimal.Decimal` → `string`).
 
 **v0.3** — OpenAPI 3.1 export, Swagger UI generator, Postman collection export.
 
