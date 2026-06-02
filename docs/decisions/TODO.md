@@ -25,20 +25,6 @@ this (`types.Unalias(t)` before switching, after pointer unwrap).
 a standing reminder — any future type-walking code must call
 `types.Unalias(t)` before switching on kind. Pure code-hygiene; no ADR.
 
-## [ ] `uuid.UUID` detection has no real-import test
-
-`isSpecialBuiltin`'s `github.com/google/uuid.UUID` arm
-(`structfields.go`/`fieldtypes.go`) is exercised only by the
-qualified-name unit dispatch, not by a real `github.com/google/uuid`
-import. The dep was deliberately not added (not worth the
-bloat/precedent for one three-line, branch-free switch arm).
-
-**Trigger / action:** either synthesize a `*types.Named` in a unit test
-(fake `Pkg` with path `github.com/google/uuid`, name `UUID`) and assert
-`isSpecialBuiltin`, or add the dep with a real-import integration test.
-**Risk: low** — three lines, no branching. Fix when the cost is
-justified by use.
-
 ## [ ] Named-alias-of-named collapses to a fresh TypeStruct
 
 `type A B` (where `B` is a struct) emits as a fresh `TypeStruct` with

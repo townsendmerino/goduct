@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"go/token"
 	"go/types"
 	"testing"
 
@@ -198,5 +199,35 @@ type S struct {
 	}
 	if n, ok := isSpecialBuiltin(ftField(t, st, "T")); !ok || n != "time.Time" {
 		t.Error("time.Time must be recognized as a special builtin (short-circuits C3)")
+	}
+}
+
+// TestIsSpecialBuiltin_SynthesizedUUID exercises the github.com/google/uuid.UUID
+// arm of isSpecialBuiltin without taking on the real dependency. The arm is
+// three lines and branch-free; this test prevents silent breakage if someone
+// edits the qualified-name switch without noticing the uuid case. The negative
+// case proves the switch is matching on pkg-path + name, not defaulting to
+// true. Closes the post-v0.1 TODO "uuid.UUID detection has no real-import test".
+func TestIsSpecialBuiltin_SynthesizedUUID(t *testing.T) {
+	// Underlying type doesn't matter — isSpecialBuiltin matches on
+	// Obj().Pkg().Path() + Obj().Name() only. A basic placeholder keeps
+	// go/types happy without committing to the real `[16]byte`.
+	mkNamed := func(path, pkgName, typeName string) *types.Named {
+		pkg := types.NewPackage(path, pkgName)
+		tn := types.NewTypeName(token.NoPos, pkg, typeName, nil)
+		return types.NewNamed(tn, types.Typ[types.Uint8], nil)
+	}
+
+	got, ok := isSpecialBuiltin(mkNamed("github.com/google/uuid", "uuid", "UUID"))
+	if !ok || got != "uuid.UUID" {
+		t.Errorf("isSpecialBuiltin(synth uuid.UUID) = (%q, %v); want (%q, true)",
+			got, ok, "uuid.UUID")
+	}
+
+	// Negative: a same-named type in a different (or unrecognized) package
+	// must NOT be detected. This guards against any future broadening of
+	// the switch from qname to just type name.
+	if got, ok := isSpecialBuiltin(mkNamed("github.com/example/notuuid", "notuuid", "UUID")); ok {
+		t.Errorf("isSpecialBuiltin(notuuid.UUID) = (%q, true); want (\"\", false)", got)
 	}
 }
