@@ -100,10 +100,11 @@ func TestEndToEnd_ChiBasic(t *testing.T) {
 		{filepath.Join(outDir, "types.ts"), exp("client/types.ts")},
 		{filepath.Join(outDir, "schemas.ts"), exp("client/schemas.ts")},
 		{filepath.Join(outDir, "client.ts"), exp("client/client.ts")},
+		{filepath.Join(outDir, "hooks.ts"), exp("client/hooks.ts")},
 		{adapter, exp("go/goduct_routes.go")},
 	}
 
-	// 4. All four exist (the beside-source adapter included).
+	// 4. All five exist (the beside-source adapter included).
 	for _, f := range files {
 		if _, err := os.Stat(f.got); err != nil {
 			t.Fatalf("expected output missing: %s: %v", f.got, err)
@@ -128,19 +129,10 @@ func TestEndToEnd_ChiBasic(t *testing.T) {
 	}
 
 	// Secondary: loud-failure CLI surface the happy path never reaches.
-	t.Run("exit code 2 for --hooks", func(t *testing.T) {
-		var se bytes.Buffer
-		c := exec.Command(bin, "gen", "./examples/chi-basic/api", "--hooks")
-		c.Dir, c.Stderr = root, &se
-		_ = c.Run()
-		if code := procExit(t, c); code != 2 {
-			t.Fatalf("--hooks exit = %d, want 2\nstderr:\n%s", code, se.String())
-		}
-		if !strings.Contains(se.String(), "planned for v0.2 (ADR 0008)") {
-			t.Errorf("--hooks stderr missing the v0.2 pointer:\n%s", se.String())
-		}
-	})
-
+	// (The prior "exit-2 for --hooks" subtest was removed in v0.2 when
+	// --hooks flipped from deferred-with-pointer to a real generator;
+	// see ADR 0028. The no-generator path below still exercises the
+	// usage-error loud-failure contract.)
 	t.Run("exit code 2 for no generators selected", func(t *testing.T) {
 		var se bytes.Buffer
 		c := exec.Command(bin, "gen", "./examples/chi-basic/api")

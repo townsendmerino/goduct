@@ -6,7 +6,7 @@
 // Go adapter writes goduct_routes.go *beside the source package* (ADR
 // 0009), so its dir comes from a route's Pos, never --out. Stdlib flag
 // only; the four generators share the ADR 0022 Generate shape. Exit: 0
-// ok; 1 analyze/generate/IO error; 2 usage (incl. the v0.2-only --hooks).
+// ok; 1 analyze/generate/IO error; 2 usage error.
 package main
 
 import (
@@ -20,6 +20,7 @@ import (
 
 	"github.com/townsendmerino/goduct/internal/analyzer"
 	"github.com/townsendmerino/goduct/internal/generators/goadapter"
+	"github.com/townsendmerino/goduct/internal/generators/hooks"
 	"github.com/townsendmerino/goduct/internal/generators/tsclient"
 	"github.com/townsendmerino/goduct/internal/generators/tstypes"
 	"github.com/townsendmerino/goduct/internal/generators/zod"
@@ -52,6 +53,7 @@ var specs = []genSpec{
 	{"types", "types.ts", tstypes.Generate, false},
 	{"zod", "schemas.ts", zod.Generate, false},
 	{"client", "client.ts", tsclient.Generate, false},
+	{"hooks", "hooks.ts", hooks.Generate, false},
 	{"go-adapter", "goduct_routes.go", goadapter.Generate, true},
 }
 
@@ -63,8 +65,7 @@ func runGen(args []string) int {
 		sel[s.name] = fs.Bool(s.name, false, "generate "+s.out)
 	}
 	var (
-		all   = fs.Bool("all", false, "generate every v0.1 generator")
-		hooks = fs.Bool("hooks", false, "React Query hooks (v0.2; rejected in v0.1)")
+		all   = fs.Bool("all", false, "generate every generator")
 		out   = fs.String("out", "", "output directory for the TypeScript generators")
 		dir   = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
 		tags  = fs.String("tags", "", "comma-separated build tags")
@@ -88,18 +89,11 @@ func runGen(args []string) int {
 		return 2
 	}
 
-	// --hooks is advertised in the README but deferred to v0.2 (ADR
-	// 0008). Reject it explicitly so users get a clear pointer, not a
-	// silently-ignored flag. --all does NOT imply hooks.
-	if *hooks {
-		fmt.Fprintln(os.Stderr, "goduct: --hooks (React Query) is not available in v0.1; "+
-			"planned for v0.2 (ADR 0008). Generate --client and write hooks by hand for now.")
-		return 2
-	}
-
 	chosen := pickGenerators(sel, *all)
 	if len(chosen) == 0 {
-		fmt.Fprintln(os.Stderr, "goduct: no generator selected (use --types/--zod/--client/--go-adapter or --all)")
+		fmt.Fprintln(os.Stderr,
+			"goduct: no generator selected "+
+				"(use --types/--zod/--client/--hooks/--go-adapter or --all)")
 		usage()
 		return 2
 	}
@@ -172,7 +166,7 @@ func runGen(args []string) int {
 }
 
 // pickGenerators resolves the selected specs. --all turns on every
-// v0.1 generator (hooks excluded — it is handled and rejected upstream).
+// generator in the specs table.
 func pickGenerators(sel map[string]*bool, all bool) []genSpec {
 	var out []genSpec
 	for _, s := range specs {
@@ -220,9 +214,11 @@ generators (opt-in; pick any, or --all):
   --types        types.ts          (TS interfaces + type aliases)
   --zod          schemas.ts        (zod runtime validators)
   --client       client.ts         (typed fetch client)
+  --hooks        hooks.ts          (React Query hooks; peer dep
+                                    @tanstack/react-query v5)
   --go-adapter   goduct_routes.go  (chi wiring; written beside the source
                                     package per ADR 0009, NOT under --out)
-  --all          all of the above (NOT --hooks; that is v0.2, ADR 0008)
+  --all          all of the above
 
 flags:
   --out <dir>    output dir for the TS generators (required unless only
