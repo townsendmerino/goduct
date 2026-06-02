@@ -107,6 +107,31 @@ var frameworks = map[string]*framework{
 		ctxExpr:    "c.Request.Context()",
 		queryExpr:  "c.Request.URL.Query()",
 	},
+
+	"echo": {
+		name:              "echo",
+		importLine:        `"github.com/labstack/echo/v4"`,
+		registerParamType: "*echo.Echo",
+		// echo also keeps :name path syntax.
+		pathConvert:   func(p string) string { return p },
+		registerCall:  stdRegisterCall(methodUpper),
+		wrapperParams: "c echo.Context",
+		// echo handlers return error; the framework dispatches it through
+		// its error handler. goduct still writes its own response via the
+		// runtime helpers (so the wire format stays consistent), then
+		// returns nil. earlyReturn returns nil; finalReturn appends the
+		// trailing `return nil` before the closing brace.
+		wrapperRet:  "error",
+		earlyReturn: "return nil",
+		finalReturn: "\treturn nil\n",
+		pathParamExpr: func(n string) string {
+			return `c.Param("` + n + `")`
+		},
+		writerExpr: "c.Response().Writer",
+		bodyExpr:   "c.Request().Body",
+		ctxExpr:    "c.Request().Context()",
+		queryExpr:  "c.Request().URL.Query()",
+	},
 }
 
 // Generate writes goduct_routes.go for api to w using the chi framework.

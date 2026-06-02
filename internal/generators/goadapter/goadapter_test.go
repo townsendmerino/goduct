@@ -50,7 +50,7 @@ func lineDiff(want, got string) string {
 func TestGenerate_Golden(t *testing.T) {
 	// One sub-test per framework. ADR 0030 §3: each framework has its
 	// own golden under testdata/expected/<name>/goduct_routes.go.
-	for _, fw := range []string{"chi", "gin"} {
+	for _, fw := range []string{"chi", "gin", "echo"} {
 		t.Run(fw, func(t *testing.T) {
 			root := repoRoot(t)
 			api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
