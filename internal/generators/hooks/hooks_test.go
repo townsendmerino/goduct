@@ -148,3 +148,26 @@ func TestMutationTVarsAndCall(t *testing.T) {
 		mutationTVarsAndCall(r, "weird", nil)
 	})
 }
+
+// TestHooksTSTypeRef covers the parametric-name renderer used for the
+// hooks' query/mutation type-args under ADR 0033 §5.
+func TestHooksTSTypeRef(t *testing.T) {
+	cases := []struct {
+		name string
+		ref  ir.TypeRef
+		want string
+	}{
+		{"non-generic named", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.User"}, "t.User"},
+		{"Page<User>", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}}}, "t.Page<t.User>"},
+		{"slice falls through", ir.TypeRef{Kind: ir.KindSlice,
+			Element: &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}, "string[]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tsTypeRef(c.ref); got != c.want {
+				t.Errorf("tsTypeRef = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

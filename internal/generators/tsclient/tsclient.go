@@ -131,13 +131,13 @@ func renderMethod(r ir.Route, adapters map[string]string) string {
 	hasResp := r.ResponseType != nil && r.ResponseType.Kind == ir.KindNamed
 	ret := "Promise<void>"
 	if hasResp {
-		ret = "Promise<t." + short(r.ResponseType.Named) + ">"
+		ret = "Promise<" + tsTypeRef(*r.ResponseType) + ">"
 	}
 	b.WriteString("      " + gen.MethodName(r.HandlerName, r.Tag) +
 		": async (" + signature(r, adapters) + "): " + ret + " => {\n")
 
 	if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
-		b.WriteString("        const parsed = schemas." + short(r.BodyType.Named) + ".parse(body);\n")
+		b.WriteString("        const parsed = " + schemasExpr(*r.BodyType) + ".parse(body);\n")
 	}
 	open := "        await request(opts, {\n"
 	if hasResp {
@@ -158,10 +158,79 @@ func renderMethod(r ir.Route, adapters map[string]string) string {
 	}
 	b.WriteString("        });\n")
 	if hasResp {
-		b.WriteString("        return schemas." + short(r.ResponseType.Named) + ".parse(data);\n")
+		b.WriteString("        return " + schemasExpr(*r.ResponseType) + ".parse(data);\n")
 	}
 	b.WriteString("      },")
 	return b.String()
+}
+
+// tsTypeRef renders a named TypeRef as it appears in the client's
+// method signatures (with the `t.` alias prefix on each named segment,
+// matching the existing `import type * as t from "./types"` form).
+// ADR 0033: instantiations carry TypeArgs which append `<X, Y>`,
+// composable arbitrarily deep (Page<Result<User, Err>>). Builtin /
+// slice / map TypeArgs fall through to tsType's regular rendering
+// (no `t.` prefix needed for those).
+func tsTypeRef(ref ir.TypeRef) string {
+	if ref.Kind != ir.KindNamed {
+		return tsType(ref, nil)
+	}
+	out := "t." + short(ref.Named)
+	if len(ref.TypeArgs) > 0 {
+		args := make([]string, len(ref.TypeArgs))
+		for i, ta := range ref.TypeArgs {
+			args[i] = tsTypeRef(*ta)
+		}
+		out += "<" + strings.Join(args, ", ") + ">"
+	}
+	return out
+}
+
+// schemasExpr renders a TypeRef as the corresponding zod expression
+// for use at a `.parse(...)` call site, with `schemas.` prefix on
+// named refs. A generic instantiation invokes the zod factory: a
+// route returning `*Page[User]` produces
+// `schemas.Page(schemas.User).parse(data)` (ADR 0033 §5).
+//
+// Per ADR 0022 §6 generator-local: the builtin map mirrors zod's
+// zodExpr small-table for completeness (a Page<string>-style arg
+// would otherwise have no zod expression at this call site).
+// Validators / .optional() etc. are NOT applied here — at a
+// .parse-call site we want the bare schema expression, not the
+// field-decorated form.
+func schemasExpr(ref ir.TypeRef) string {
+	switch ref.Kind {
+	case ir.KindNamed:
+		out := "schemas." + short(ref.Named)
+		if len(ref.TypeArgs) > 0 {
+			args := make([]string, len(ref.TypeArgs))
+			for i, ta := range ref.TypeArgs {
+				args[i] = schemasExpr(*ta)
+			}
+			out += "(" + strings.Join(args, ", ") + ")"
+		}
+		return out
+	case ir.KindBuiltin:
+		switch ref.Builtin {
+		case "string", "[]byte", "time.Time", "uuid.UUID":
+			return "z.string()"
+		case "bool":
+			return "z.boolean()"
+		case "json.RawMessage":
+			return "z.unknown()"
+		case "int", "int8", "int16", "int32", "int64",
+			"uint", "uint8", "uint16", "uint32", "uint64",
+			"float32", "float64", "time.Duration":
+			return "z.number()"
+		}
+		panic("tsclient: cannot render zod expression for builtin " + ref.Builtin +
+			" (most likely an unsupported generic TypeArg)")
+	case ir.KindSlice:
+		return "z.array(" + schemasExpr(*ref.Element) + ")"
+	case ir.KindMap:
+		return "z.record(" + schemasExpr(*ref.Key) + ", " + schemasExpr(*ref.Value) + ")"
+	}
+	panic("tsclient: unhandled TypeRef kind in schemasExpr")
 }
 
 // signature builds the method's argument list: a `params` object (path

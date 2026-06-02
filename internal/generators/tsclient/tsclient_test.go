@@ -122,3 +122,67 @@ func TestRenderMethod_NoDoc(t *testing.T) {
 		t.Errorf("unexpected method head:\n%s", out)
 	}
 }
+
+// TestTSTypeRef_Generics covers the t.-alias-prefix renderer used for
+// the client's Promise<T> return types under ADR 0033 §5.
+func TestTSTypeRef_Generics(t *testing.T) {
+	cases := []struct {
+		name string
+		ref  ir.TypeRef
+		want string
+	}{
+		{"non-generic named", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.User"}, "t.User"},
+		{"Page<User>", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}}}, "t.Page<t.User>"},
+		{"Page<Result<User, Err>>", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.Result",
+				TypeArgs: []*ir.TypeRef{
+					{Kind: ir.KindNamed, Named: "x/api.User"},
+					{Kind: ir.KindNamed, Named: "x/api.Err"},
+				}}}}, "t.Page<t.Result<t.User, t.Err>>"},
+		// Non-named falls through to tsType (no t. prefix on builtin/slice).
+		{"slice falls through", ir.TypeRef{Kind: ir.KindSlice,
+			Element: &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}, "string[]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tsTypeRef(c.ref); got != c.want {
+				t.Errorf("tsTypeRef = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestSchemasExpr covers the schemas.-prefix zod-expression renderer
+// used at .parse() call sites under ADR 0033 §5. A generic
+// instantiation invokes the factory; nested instantiations compose.
+func TestSchemasExpr(t *testing.T) {
+	cases := []struct {
+		name string
+		ref  ir.TypeRef
+		want string
+	}{
+		{"non-generic named", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.User"}, "schemas.User"},
+		{"Page(User)", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}}},
+			"schemas.Page(schemas.User)"},
+		{"Page(Result(User, Err)) nested", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.Result",
+				TypeArgs: []*ir.TypeRef{
+					{Kind: ir.KindNamed, Named: "x/api.User"},
+					{Kind: ir.KindNamed, Named: "x/api.Err"},
+				}}}},
+			"schemas.Page(schemas.Result(schemas.User, schemas.Err))"},
+		// Builtin TypeArg lands a zod expression rather than a schemas. ref.
+		{"Optional(string) builtin arg", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Optional",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindBuiltin, Builtin: "string"}}},
+			"schemas.Optional(z.string())"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := schemasExpr(c.ref); got != c.want {
+				t.Errorf("schemasExpr = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

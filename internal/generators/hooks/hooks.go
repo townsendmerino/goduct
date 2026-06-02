@@ -91,7 +91,7 @@ func hookFor(r ir.Route, adapters map[string]string) string {
 func queryHook(r ir.Route, adapters map[string]string) string {
 	name := "use" + r.HandlerName
 	method := gen.MethodName(r.HandlerName, r.Tag)
-	tdata := "t." + short(r.ResponseType.Named)
+	tdata := tsTypeRef(*r.ResponseType)
 	optsType := "HookQueryOptions<" + tdata + ">"
 
 	var b strings.Builder
@@ -137,7 +137,7 @@ func mutationHook(r ir.Route, adapters map[string]string) string {
 
 	tdata := "void"
 	if r.ResponseType != nil && r.ResponseType.Kind == ir.KindNamed {
-		tdata = "t." + short(r.ResponseType.Named)
+		tdata = tsTypeRef(*r.ResponseType)
 	}
 	tvars, callExpr := mutationTVarsAndCall(r, method, adapters)
 	optsType := "HookMutationOptions<" + tdata + ", " + tvars + ">"
@@ -191,11 +191,11 @@ func mutationTVarsAndCall(r ir.Route, method string, adapters map[string]string)
 
 	switch {
 	case hasBody && !hasPath:
-		return "t." + short(r.BodyType.Named), "(body) => " + callBase + "(body)"
+		return tsTypeRef(*r.BodyType), "(body) => " + callBase + "(body)"
 	case hasPath && !hasBody:
 		return pathObj, "(params) => " + callBase + "(params)"
 	case hasPath && hasBody:
-		return "{ params: " + pathObj + "; body: t." + short(r.BodyType.Named) + " }",
+		return "{ params: " + pathObj + "; body: " + tsTypeRef(*r.BodyType) + " }",
 			"(vars) => " + callBase + "(vars.params, vars.body)"
 	default:
 		// Mutation with neither path params nor body — POST with no fields.
@@ -266,4 +266,23 @@ func tsType(ref ir.TypeRef, adapters map[string]string) string {
 		return "Record<" + tsType(*ref.Key, adapters) + ", " + tsType(*ref.Value, adapters) + ">"
 	}
 	panic("hooks: unhandled TypeRef kind")
+}
+
+// tsTypeRef renders a named TypeRef with the `t.` alias prefix used
+// across the hooks' query/mutation type-args. ADR 0033 instantiations
+// carry TypeArgs and recurse: Page<User> -> "t.Page<t.User>";
+// composes deeply (Page<Result<User, Err>>).
+func tsTypeRef(ref ir.TypeRef) string {
+	if ref.Kind != ir.KindNamed {
+		return tsType(ref, nil)
+	}
+	out := "t." + short(ref.Named)
+	if len(ref.TypeArgs) > 0 {
+		args := make([]string, len(ref.TypeArgs))
+		for i, ta := range ref.TypeArgs {
+			args[i] = tsTypeRef(*ta)
+		}
+		out += "<" + strings.Join(args, ", ") + ">"
+	}
+	return out
 }
