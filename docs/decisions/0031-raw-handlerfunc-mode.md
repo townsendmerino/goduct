@@ -1,6 +1,6 @@
 # 0031. Raw `http.HandlerFunc` mode (v0.2)
 
-**Status:** Accepted
+**Status:** Accepted (§3 gin/echo limitation superseded by [0037](0037-gin-echo-raw-handlerfunc.md))
 **Date:** 2026-06-02
 
 ## Context

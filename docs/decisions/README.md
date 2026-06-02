@@ -74,9 +74,10 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0028](0028-react-query-hooks-design.md) | React Query hooks generator design (v0.2) | Accepted |
 | [0029](0029-watch-mode-design.md) | `--watch` mode design (v0.2) | Accepted |
 | [0030](0030-framework-adapter-selection.md) | Framework-adapter selection mechanism and structure (v0.2) | Accepted |
-| [0031](0031-raw-handlerfunc-mode.md) | Raw `http.HandlerFunc` mode (v0.2) | Accepted |
+| [0031](0031-raw-handlerfunc-mode.md) | Raw `http.HandlerFunc` mode (v0.2) | Accepted (§3 gin/echo superseded by 0037) |
 | [0032](0032-custom-type-adapters.md) | Custom type adapters (v0.2) | Accepted |
 | [0033](0033-generics.md) | Generics in request/response types (v0.3) | Accepted |
 | [0034](0034-openapi-export.md) | OpenAPI 3.1 export (v0.3) | Accepted |
 | [0035](0035-openapi-sibling-generators.md) | Swagger UI + Postman collection generators (v0.3) | Accepted |
 | [0036](0036-constraint-generics.md) | Constraint generics (v0.4) | Accepted |
+| [0037](0037-gin-echo-raw-handlerfunc.md) | gin/echo raw `http.HandlerFunc` via context-bridge wrappers (v0.4) | Accepted |
