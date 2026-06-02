@@ -2,6 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-05-17
+**Amended:** 2026-06-02 — Consequences: fulfilled in v0.2 per
+[ADR 0028](0028-react-query-hooks-design.md). Decision unchanged.
 
 ## Context
 
@@ -26,6 +28,16 @@ frontend output framework-agnostic.
 - The README still advertises `--hooks` under v0.1 and must be reconciled with
   this decision. That reconciliation was explicitly deferred earlier in this
   conversation — tracked here, not yet done.
+
+**Update (2026-06-02, v0.2):** the deferral is fulfilled.
+[ADR 0028](0028-react-query-hooks-design.md) pins the React Query
+hooks generator design (createHooks factory, `[tag, methodName,
+params]` query keys, auto-invalidate-on-mutation by tag prefix,
+RQ v5, `.ts`). v0.2's `--hooks` flag generates `hooks.ts` alongside
+the existing four outputs; `--all` ships five files. Status of this
+ADR stays Accepted (the v0.1 deferral was correct at the time);
+fulfillment is recorded here per the empirical-finding pattern
+([ADR 0023](0023-godoc-to-jsdoc-transformation.md) history).
 
 ## Alternatives considered
 

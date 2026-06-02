@@ -71,3 +71,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0025](0025-correct-stale-golden-for-list-users.md) | Correct the stale client.ts golden for ADR 0015 | Accepted |
 | [0026](0026-goadapter-request-type-name-convention.md) | goadapter request-type-name convention (v0.1) | Superseded by 0027 |
 | [0027](0027-enrich-ir-for-go-side-codegen.md) | Enrich the IR for Go-side code generation (v0.2) | Accepted |
+| [0028](0028-react-query-hooks-design.md) | React Query hooks generator design (v0.2) | Accepted |
