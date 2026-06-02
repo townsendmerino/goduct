@@ -137,6 +137,18 @@ type TypeRef struct {
 	// Key, Value are the inner refs when Kind == KindMap.
 	Key, Value *TypeRef
 
+	// TypeParam is the param's name when Kind == KindTypeParam — a
+	// reference to a generic type parameter inside the generic's own
+	// field list (e.g. the T in Page[T any]'s Items []T field). Added
+	// in v0.3 per ADR 0033.
+	TypeParam string
+
+	// TypeArgs carries the concrete type arguments for a generic
+	// instantiation. Non-empty only when Kind == KindNamed and Named
+	// refers to a generic type. Position matches the named type's
+	// TypeParams order. v0.3 per ADR 0033.
+	TypeArgs []*TypeRef
+
 	// Optional means "may be absent / null". Set by pointer-ness or
 	// omitempty at the use site.
 	Optional bool
@@ -149,6 +161,10 @@ const (
 	KindNamed            // struct, enum, alias — see TypeDef.Kind
 	KindSlice
 	KindMap
+	// KindTypeParam: a reference to a type parameter inside a generic
+	// type's field list (the T in `[]T` inside Page[T any]'s body).
+	// Carries the param name in TypeRef.TypeParam. v0.3 per ADR 0033.
+	KindTypeParam
 )
 
 // TypeDef is a named user type that needs to be rendered in the output.
@@ -171,6 +187,12 @@ type TypeDef struct {
 
 	// AliasTo is populated when Kind == TypeAlias.
 	AliasTo *TypeRef
+
+	// TypeParams names the generic type parameters declared on this
+	// type (e.g. ["T"] for Page[T], ["K","V"] for Map[K,V]).
+	// nil/empty for non-generic types. Order matches the source
+	// declaration. v0.3 per ADR 0033.
+	TypeParams []string
 
 	Doc string
 	Pos string
