@@ -104,10 +104,11 @@ go install github.com/townsendmerino/goduct/cmd/goduct@latest
 In your frontend project:
 
 ```bash
-npm install zod
+npm install zod                          # only if you generate --zod
+npm install @tanstack/react-query        # only if you generate --hooks
 ```
 
-(zod is the only runtime dependency, and only if you generate validators.)
+Both are peer dependencies — install the ones for the generators you use.
 
 ---
 
@@ -165,10 +166,12 @@ goduct gen ./api --out ./web/src/api \
   --types      \   # types.ts             (TS interfaces + types)
   --zod        \   # schemas.ts           (zod schemas for runtime validation)
   --client     \   # client.ts            (fetch-based, typed)
+  --hooks      \   # hooks.ts             (React Query hooks; peer dep
+                   #                       @tanstack/react-query v5)
   --go-adapter     # api/goduct_routes.go (chi wiring, written beside your source)
 ```
 
-Or just `--all`. (`--hooks` / React Query hooks — _planned for v0.2_, [ADR 0008](docs/decisions/0008-react-query-deferred-to-v02.md); passing `--hooks` to v0.1 exits with a pointer to v0.2.)
+Or just `--all`.
 
 ### `--types`
 Plain TypeScript types. No runtime dependencies. Smallest output.
@@ -186,14 +189,28 @@ api.users.create({ email, name })
 api.posts.list()
 ```
 
-### `--hooks` _(planned for v0.2 — not available in v0.1)_
-Per [ADR 0008](docs/decisions/0008-react-query-deferred-to-v02.md), React Query hooks are deferred so v0.1's frontend output stays UI-framework-agnostic. The planned shape:
+### `--hooks`
+React Query hooks for every endpoint. GET routes emit `useQuery` wrappers; everything else emits `useMutation` wrappers with auto tag-invalidation on success (see [ADR 0028](docs/decisions/0028-react-query-hooks-design.md) for the design pins).
+
+The generator emits a `createHooks(client)` factory — symmetric with `createClient`, no React Context, no Provider wrap. Wire once at the app boundary:
 
 ```typescript
-const { data, isLoading } = useGetUser({ id });
+import { createClient } from "./api/client";
+import { createHooks } from "./api/hooks";
+
+const api = createClient({ baseUrl: "/api" });
+const { useGetUser, useCreateUser, useListUsers } = createHooks(api);
+
+// in a component:
+const { data, isLoading } = useGetUser({ id: "u_123" });
+
 const createUser = useCreateUser();
-await createUser.mutateAsync({ email, name });
+await createUser.mutateAsync({ email: "foo@bar.com", name: "Frank" });
 ```
+
+Mutations on a given tag (e.g. `users`) auto-invalidate the `[tag]` query-key prefix on success, so a `useCreateUser` mutation refreshes `useListUsers` without manual wiring. Override via the standard `opts.onSuccess`. Errors are typed as `GoductError`.
+
+Peer dependency: `@tanstack/react-query` v5. The user wraps their app in `<QueryClientProvider>` themselves — that is React Query's surface area, not goduct's.
 
 ### `--go-adapter`
 A `Register(chi.Router)` function that wires every handler to the right route, decodes path/query/body into your request struct, runs validation if generated, and serializes the response. Errors flow through `goduct.WriteError` and produce a consistent wire format.
@@ -238,7 +255,7 @@ Wire format is stable:
 
 ---
 
-## What's supported (v0.1)
+## What's supported
 
 **Frameworks:** chi. (gin, echo, std `net/http` mux — _planned for v0.2_.)
 
@@ -256,7 +273,7 @@ Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, cus
 
 **Validation tags** (translated to zod): `required`, `email`, `url`, `min`, `max`, `len`. `oneof` — _planned for v0.2_ ([ADR 0006](docs/decisions/0006-validation-tag-translation.md) specifies it; the v0.1 zod generator does not yet translate it). Tags zod can't express are not enforced client-side but still run server-side via go-playground/validator.
 
-**Frontend:** TypeScript types, zod schemas, typed fetch client. React Query hooks (`--hooks`) — _planned for v0.2_ ([ADR 0008](docs/decisions/0008-react-query-deferred-to-v02.md)).
+**Frontend:** TypeScript types, zod schemas, typed fetch client, React Query hooks ([ADR 0028](docs/decisions/0028-react-query-hooks-design.md); peer dep `@tanstack/react-query` v5).
 
 **Spec-trust caveats** — shipped and behaves per spec, but not yet exercised by the chi-basic golden (v0.2 adds coverage): the `url` and `len` validators; the typed client's combined path+query argument object; the Go adapter's `bool`/`float` query-param conversion.
 
