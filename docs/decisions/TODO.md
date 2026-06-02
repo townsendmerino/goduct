@@ -12,19 +12,6 @@ This is not an ADR — ADRs record decisions; this records implied work
 not yet done. Remove an item when it is reconciled (and, if it required
 a decision, record that decision in an ADR).
 
-## [ ] Audit `*types.Type` kind switches for Alias unwrapping
-
-Go 1.22+ alias types (`*types.Alias`, default in 1.24+) mean a type
-switch on a `types.Type` can miss the real kind: `any`/`interface{}`
-and `type Foo = Bar` arrive as `*types.Alias`. `fieldtypes.go` handles
-this (`types.Unalias(t)` before switching, after pointer unwrap).
-
-**Milestone-14 read-only audit:** `structfields.go` has no raw
-`types.Type` kind-switch; the only one is in `fieldtypes.go`, already
-`Unalias`-safe. No latent bug found. **Trigger / action:** this remains
-a standing reminder — any future type-walking code must call
-`types.Unalias(t)` before switching on kind. Pure code-hygiene; no ADR.
-
 ## [ ] Named-alias-of-named collapses to a fresh TypeStruct
 
 `type A B` (where `B` is a struct) emits as a fresh `TypeStruct` with

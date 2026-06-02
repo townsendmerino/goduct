@@ -121,9 +121,14 @@ func fieldTypeRef(t types.Type) (ref ir.TypeRef, isPtr bool, err *typeErr) {
 	if p, ok := t.(*types.Pointer); ok {
 		isPtr, t = true, p.Elem()
 	}
-	// Resolve alias types (`any`, `type Foo = Bar`) to the real type so the
-	// switch below sees *types.Interface etc., not *types.Alias. Defined
-	// types (`type Foo Bar`) are *types.Named and unaffected.
+	// INVARIANT for any future type-walking code in this package: call
+	// types.Unalias(t) (after pointer-unwrap) before switching on Go-type
+	// kind. Go 1.22+ alias types (`*types.Alias`, default in 1.24+) cause
+	// a naive `t.(type)` switch to miss the real kind — `any`/`interface{}`
+	// and `type Foo = Bar` arrive as `*types.Alias`, not `*types.Interface`
+	// or the aliased type. Defined types (`type Foo Bar`) are `*types.Named`
+	// and unaffected by Unalias. Milestone-14 audit verified this is the
+	// only kind-switch in the analyzer; new ones must follow the same rule.
 	t = types.Unalias(t)
 	if name, ok := isSpecialBuiltin(t); ok {
 		return ir.TypeRef{Kind: ir.KindBuiltin, Builtin: name}, isPtr, nil
