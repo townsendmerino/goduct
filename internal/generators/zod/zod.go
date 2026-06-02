@@ -34,8 +34,13 @@ func Generate(api *ir.API, w io.Writer) error {
 
 // renderSchema emits the schema const and its z.infer type alias (no doc
 // comment, per ADR 0024). adapters threads ir.API.CustomAdapters through
-// to fieldExpr / zodExpr so adapted types render per ADR 0032.
+// to fieldExpr / zodExpr so adapted types render per ADR 0032. Generic
+// types (ADR 0033 §5) emit as factory functions (zod has no native
+// generics) — the user invokes them with concrete sub-schemas.
 func renderSchema(td ir.TypeDef, adapters map[string]string) string {
+	if len(td.TypeParams) > 0 {
+		return renderGenericSchema(td, adapters)
+	}
 	var b strings.Builder
 	b.WriteString("export const " + td.Name + " = ")
 	switch td.Kind {
@@ -53,6 +58,62 @@ func renderSchema(td ir.TypeDef, adapters map[string]string) string {
 	b.WriteString(";\n")
 	b.WriteString("export type " + td.Name + " = z.infer<typeof " + td.Name + ">;")
 	return b.String()
+}
+
+// renderGenericSchema emits a generic zod schema as a factory function
+// plus its parametric type alias. ADR 0033 §5:
+//
+//	export const Page = <T extends z.ZodTypeAny>(t: T) =>
+//	  z.object({ items: z.array(t), nextCursor: z.string().optional() });
+//	export type Page<T extends z.ZodTypeAny> = ReturnType<typeof Page<T>>;
+//
+// Generic enums and aliases are out of scope per ADR 0033 §2; the
+// analyzer rejects them upstream.
+func renderGenericSchema(td ir.TypeDef, adapters map[string]string) string {
+	if td.Kind != ir.TypeStruct {
+		panic("zod: generic non-struct " + td.Name +
+			" should be rejected by analyzer (ADR 0033 §2)")
+	}
+	tparams := make([]string, len(td.TypeParams))
+	tvars := make([]string, len(td.TypeParams))
+	targs := make([]string, len(td.TypeParams))
+	for i, p := range td.TypeParams {
+		tparams[i] = p + " extends z.ZodTypeAny"
+		tvars[i] = paramVar(p) + ": " + p
+		targs[i] = p
+	}
+
+	var b strings.Builder
+	b.WriteString("export const " + td.Name + " = <" + strings.Join(tparams, ", ") + ">(" +
+		strings.Join(tvars, ", ") + ") =>\n")
+	b.WriteString("  z.object({\n")
+	for _, f := range gen.WireFields(td) {
+		b.WriteString("    " + f.JSONName + ": " + fieldExpr(f, adapters) + ",\n")
+	}
+	b.WriteString("  });\n")
+	b.WriteString("export type " + td.Name + "<" + strings.Join(tparams, ", ") + "> = " +
+		"ReturnType<typeof " + td.Name + "<" + strings.Join(targs, ", ") + ">>;")
+	return b.String()
+}
+
+// paramVar maps a type-param name to its lowercase factory-function
+// parameter name: "T" -> "t", "K" -> "k", "Item" -> "item". Used both
+// at declaration (function signature) and reference (KindTypeParam
+// inside the factory body).
+func paramVar(p string) string {
+	if p == "" {
+		return p
+	}
+	rs := []rune(p)
+	rs[0] = unicodeToLower(rs[0])
+	return string(rs)
+}
+
+func unicodeToLower(r rune) rune {
+	if r >= 'A' && r <= 'Z' {
+		return r + ('a' - 'A')
+	}
+	return r
 }
 
 func enumExpr(td ir.TypeDef) string {
@@ -171,11 +232,24 @@ func zodExpr(ref ir.TypeRef, adapters map[string]string) string {
 		if i := strings.LastIndex(n, "."); i >= 0 {
 			n = n[i+1:]
 		}
+		// ADR 0033: a generic instantiation invokes the schema factory.
+		// Page<User> in TS == Page(User) in zod.
+		if len(ref.TypeArgs) > 0 {
+			args := make([]string, len(ref.TypeArgs))
+			for i, ta := range ref.TypeArgs {
+				args[i] = zodExpr(*ta, adapters)
+			}
+			return n + "(" + strings.Join(args, ", ") + ")"
+		}
 		return n
 	case ir.KindSlice:
 		return "z.array(" + zodExpr(*ref.Element, adapters) + ")"
 	case ir.KindMap:
 		return "z.record(" + zodExpr(*ref.Key, adapters) + ", " + zodExpr(*ref.Value, adapters) + ")"
+	case ir.KindTypeParam:
+		// ADR 0033: a type-param inside the factory's body references
+		// the factory's lowercased parameter (T -> t, K -> k, ...).
+		return paramVar(ref.TypeParam)
 	}
 	panic("zod: unhandled TypeRef kind")
 }

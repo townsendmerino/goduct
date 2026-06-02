@@ -35,9 +35,16 @@ func renderType(td ir.TypeDef, adapters map[string]string) string {
 	if d := gen.JSDoc(td.Name, td.Doc); d != "" {
 		s.WriteString("/** " + d + " */\n")
 	}
+	// ADR 0033: emit the type-param list on the declaration. Generic
+	// enums and aliases are out of scope (see ADR 0033 §2); the
+	// analyzer rejects them upstream.
+	tparams := ""
+	if len(td.TypeParams) > 0 {
+		tparams = "<" + strings.Join(td.TypeParams, ", ") + ">"
+	}
 	switch td.Kind {
 	case ir.TypeStruct:
-		s.WriteString("export interface " + td.Name + " {\n")
+		s.WriteString("export interface " + td.Name + tparams + " {\n")
 		for _, f := range gen.WireFields(td) {
 			if fd := gen.JSDoc(f.GoName, f.Doc); fd != "" {
 				s.WriteString("  /** " + fd + " */\n")
@@ -105,11 +112,23 @@ func tsType(ref ir.TypeRef, adapters map[string]string) string {
 		if i := strings.LastIndex(n, "."); i >= 0 {
 			n = n[i+1:]
 		}
+		// ADR 0033: render TypeArgs as the `<X, Y>` parametric suffix.
+		if len(ref.TypeArgs) > 0 {
+			args := make([]string, len(ref.TypeArgs))
+			for i, ta := range ref.TypeArgs {
+				args[i] = tsType(*ta, adapters)
+			}
+			n += "<" + strings.Join(args, ", ") + ">"
+		}
 		return n
 	case ir.KindSlice:
 		return tsType(*ref.Element, adapters) + "[]"
 	case ir.KindMap:
 		return "Record<" + tsType(*ref.Key, adapters) + ", " + tsType(*ref.Value, adapters) + ">"
+	case ir.KindTypeParam:
+		// ADR 0033: type-param inside a generic's field list — render
+		// the param name verbatim (T, K, V, etc.).
+		return ref.TypeParam
 	}
 	panic("tstypes: unhandled TypeRef kind")
 }

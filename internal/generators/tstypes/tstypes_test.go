@@ -94,6 +94,24 @@ func TestTSType(t *testing.T) {
 		{"map", ir.TypeRef{Kind: ir.KindMap,
 			Key:   &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"},
 			Value: &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.User"}}, "Record<string, User>"},
+		// ADR 0033: type-param reference + parametric named refs.
+		{"type-param T", ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"}, "T"},
+		{"slice of T", ir.TypeRef{Kind: ir.KindSlice,
+			Element: &ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"}}, "T[]"},
+		{"Page<User>", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}}}, "Page<User>"},
+		{"Map<K, V>", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Map",
+			TypeArgs: []*ir.TypeRef{
+				{Kind: ir.KindBuiltin, Builtin: "string"},
+				{Kind: ir.KindNamed, Named: "x/api.User"},
+			}}, "Map<string, User>"},
+		// Nested instantiations compose: Page<Result<User, Err>>
+		{"Page<Result<User, Err>>", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.Result",
+				TypeArgs: []*ir.TypeRef{
+					{Kind: ir.KindNamed, Named: "x/api.User"},
+					{Kind: ir.KindNamed, Named: "x/api.Err"},
+				}}}}, "Page<Result<User, Err>>"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -95,6 +95,23 @@ func TestZodExpr(t *testing.T) {
 		{"map", ir.TypeRef{Kind: ir.KindMap,
 			Key:   &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"},
 			Value: &ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.User"}}, "z.record(z.string(), User)"},
+		// ADR 0033: type-param + factory-invocation forms.
+		{"type-param T", ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"}, "t"},
+		{"type-param K", ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "K"}, "k"},
+		{"Page(User) factory invocation", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.User"}}}, "Page(User)"},
+		{"Map(z.string(), User) factory invocation", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Map",
+			TypeArgs: []*ir.TypeRef{
+				{Kind: ir.KindBuiltin, Builtin: "string"},
+				{Kind: ir.KindNamed, Named: "x/api.User"},
+			}}, "Map(z.string(), User)"},
+		// Nested factory invocations compose.
+		{"Page(Result(User, Err)) nested", ir.TypeRef{Kind: ir.KindNamed, Named: "x/api.Page",
+			TypeArgs: []*ir.TypeRef{{Kind: ir.KindNamed, Named: "x/api.Result",
+				TypeArgs: []*ir.TypeRef{
+					{Kind: ir.KindNamed, Named: "x/api.User"},
+					{Kind: ir.KindNamed, Named: "x/api.Err"},
+				}}}}, "Page(Result(User, Err))"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -151,4 +168,57 @@ func TestFieldExpr(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRenderGenericSchema locks the multi-line factory-function format
+// from ADR 0033 §5. Multi-param produces a multi-arg factory.
+func TestRenderGenericSchema(t *testing.T) {
+	t.Run("single-param Page[T]", func(t *testing.T) {
+		td := ir.TypeDef{
+			Name:       "Page",
+			Kind:       ir.TypeStruct,
+			TypeParams: []string{"T"},
+			Fields: []ir.Field{
+				{GoName: "Items", JSONName: "items", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindSlice,
+						Element: &ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"}}},
+				{GoName: "NextCursor", JSONName: "nextCursor", Source: ir.FieldSourceJSON, Optional: true,
+					Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}},
+			},
+		}
+		got := renderSchema(td, nil)
+		want := `export const Page = <T extends z.ZodTypeAny>(t: T) =>
+  z.object({
+    items: z.array(t),
+    nextCursor: z.string().optional(),
+  });
+export type Page<T extends z.ZodTypeAny> = ReturnType<typeof Page<T>>;`
+		if got != want {
+			t.Errorf("renderSchema(Page[T]) mismatch\nwant:\n%s\ngot:\n%s", want, got)
+		}
+	})
+
+	t.Run("multi-param Result[T,E]", func(t *testing.T) {
+		td := ir.TypeDef{
+			Name:       "Result",
+			Kind:       ir.TypeStruct,
+			TypeParams: []string{"T", "E"},
+			Fields: []ir.Field{
+				{GoName: "OK", JSONName: "ok", Source: ir.FieldSourceJSON, Optional: true,
+					Type: ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "T"}},
+				{GoName: "Error", JSONName: "error", Source: ir.FieldSourceJSON, Optional: true,
+					Type: ir.TypeRef{Kind: ir.KindTypeParam, TypeParam: "E"}},
+			},
+		}
+		got := renderSchema(td, nil)
+		want := `export const Result = <T extends z.ZodTypeAny, E extends z.ZodTypeAny>(t: T, e: E) =>
+  z.object({
+    ok: t.optional(),
+    error: e.optional(),
+  });
+export type Result<T extends z.ZodTypeAny, E extends z.ZodTypeAny> = ReturnType<typeof Result<T, E>>;`
+		if got != want {
+			t.Errorf("renderSchema(Result[T,E]) mismatch\nwant:\n%s\ngot:\n%s", want, got)
+		}
+	})
 }
