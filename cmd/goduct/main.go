@@ -183,50 +183,19 @@ func pickGenerators(sel map[string]*bool, all bool) []genSpec {
 	return out
 }
 
-// sourceDir derives the source package directory for the Go adapter
-// from a route's (or, lacking routes, a type's) Pos, which the analyzer
-// records as "file:line:col". The adapter lands here, not under --out,
-// because it must compile in the handlers' package (ADR 0009).
+// sourceDir returns the filesystem directory of the package whose
+// handlers the Go adapter wraps. The adapter must compile in the
+// handlers' own package (ADR 0009), so its destination dir comes from
+// the analyzer's api.SourceDirs map (ADR 0027), not from --out. v0.1
+// is single-package, so the map has exactly one entry; this picks any
+// — they're all equivalent. (Multi-package adapter output is v0.2+;
+// when it lands, this function evolves to pick the right entry per
+// route's source package.)
 func sourceDir(api *ir.API) (string, error) {
-	var pos string
-	if len(api.Routes) > 0 {
-		pos = api.Routes[0].Pos
-	} else {
-		for _, td := range api.Types {
-			pos = td.Pos
-			break
-		}
+	for _, d := range api.SourceDirs {
+		return d, nil
 	}
-	if f := posFile(pos); f != "" {
-		return filepath.Dir(f), nil
-	}
-	return "", fmt.Errorf("cannot locate source package directory (no route/type position available)")
-}
-
-// posFile strips the trailing :line[:col] from an analyzer Pos string,
-// leaving the filename. The filename itself carries no ':' on the
-// platforms goduct targets, so peel at most two numeric suffixes.
-func posFile(pos string) string {
-	for i := 0; i < 2; i++ {
-		j := strings.LastIndex(pos, ":")
-		if j < 0 || !allDigits(pos[j+1:]) {
-			break
-		}
-		pos = pos[:j]
-	}
-	return pos
-}
-
-func allDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	return "", fmt.Errorf("cannot locate source package directory (api.SourceDirs is empty)")
 }
 
 func splitTags(s string) []string {
