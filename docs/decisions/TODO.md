@@ -12,6 +12,16 @@ This is not an ADR — ADRs record decisions; this records implied work
 not yet done. Remove an item when it is reconciled (and, if it required
 a decision, record that decision in an ADR).
 
+**Post-v0.1.0 polish session (2026-06-02):** four items resolved —
+Format A error-prefix normalize (ADR 0019 Implementation note marked
+done); `uuid.UUID` real-import test (synthesized `*types.Named`, no
+new dep); `*types.Alias` audit (invariant comment recorded at the
+single kind-switch in `fieldtypes.go`); v0.2 IR enrichment
+(`ir.Route.RequestType` + `ir.API.SourceDirs` added per
+[ADR 0027](0027-enrich-ir-for-go-side-codegen.md), which supersedes
+ADR 0026 — goadapter and CLI refactored to use them, both goldens
+byte-identical). Three follow-ups remain (below).
+
 ## [ ] Named-alias-of-named collapses to a fresh TypeStruct
 
 `type A B` (where `B` is a struct) emits as a fresh `TypeStruct` with
@@ -50,27 +60,6 @@ that exercises these, then convert to golden assertions.
   (`strconv.ParseBool`, `strconv.ParseFloat(v, 64)`, messages
   `"<wire> must be a boolean"` / `"<wire> must be a number"`). Golden
   exercises only `int` (`ListUsers.Limit` via `strconv.Atoi`).
-
-## [ ] v0.2: enrich the IR for Go-side codegen (RequestType + source dir)
-
-Two v0.1 workarounds share one root cause: `ir.API`/`ir.Route` don't
-carry enough position/identity info for Go-side code generation.
-
-1. **Request type.** `ir.Route` has `BodyType` (nil for non-body
-   routes) but no `RequestType`. goadapter works around this via the
-   v0.1 naming convention in
-   [ADR 0026](0026-goadapter-request-type-name-convention.md).
-2. **Source directory.** The Go adapter must be written into the
-   handlers' package directory (ADR 0009), but nothing on `*ir.API`
-   exposes that path. `cmd/goduct/main.go` derives it by parsing
-   `Route.Pos` (`"file:line:col"`).
-
-**v0.2:** add `RequestType *TypeRef` to `ir.Route` (populated by
-`DiscoverRoutes`) **and** a stable per-package source directory on
-`ir.API`. goadapter then reads the request type directly (the naming
-convention falls away) and the CLI reads the source dir directly (the
-`Route.Pos` parse in main.go is deleted). One additive,
-backward-compatible IR change fixes both.
 
 ## [ ] goadapter: custom status-code mapping incomplete
 
