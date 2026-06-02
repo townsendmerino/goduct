@@ -72,7 +72,10 @@ func runGen(args []string) int {
 		tests     = fs.Bool("tests", false, "include _test.go files when loading")
 		watch     = fs.Bool("watch", false, "re-run generators on source-file change (Ctrl-C to stop)")
 		framework = fs.String("framework", "chi", "go-adapter framework: chi|gin|echo|mux")
+		adapters  = &adapterFlag{}
 	)
+	fs.Var(adapters, "adapter",
+		"custom type adapter (repeatable): <qname>=<string|number|boolean|unknown>")
 
 	// README puts the package pattern first, before any flags; the
 	// stdlib flag parser stops at the first non-flag token, so pull the
@@ -133,13 +136,14 @@ func runGen(args []string) int {
 	}
 
 	req := runRequest{
-		pattern: pattern,
-		out:     *out,
-		dir:     *dir,
-		tags:    splitTags(*tags),
-		tests:   *tests,
-		chosen:  chosen,
-		needOut: needOut,
+		pattern:  pattern,
+		out:      *out,
+		dir:      *dir,
+		tags:     splitTags(*tags),
+		tests:    *tests,
+		chosen:   chosen,
+		needOut:  needOut,
+		adapters: adapters.Map(),
 	}
 
 	// First run uses the loud-failure contract: any analyze/generate/IO
@@ -164,13 +168,14 @@ func runGen(args []string) int {
 // of one generation: pattern + flags + the chosen specs. Both the
 // one-shot path and the --watch loop call generateOnce(req).
 type runRequest struct {
-	pattern string
-	out     string
-	dir     string
-	tags    []string
-	tests   bool
-	chosen  []genSpec
-	needOut bool
+	pattern  string
+	out      string
+	dir      string
+	tags     []string
+	tests    bool
+	chosen   []genSpec
+	needOut  bool
+	adapters map[string]string // ADR 0032: qname -> wire shape
 }
 
 // generateOnce runs analyze + render-to-memory + write for one regen.
@@ -180,9 +185,10 @@ type runRequest struct {
 // directories from api.SourceDirs.
 func generateOnce(req runRequest, quiet bool) (*ir.API, error) {
 	api, err := analyzer.Analyze([]string{req.pattern}, analyzer.LoadOptions{
-		Dir:       req.dir,
-		BuildTags: req.tags,
-		Tests:     req.tests,
+		Dir:            req.dir,
+		BuildTags:      req.tags,
+		Tests:          req.tests,
+		CustomAdapters: req.adapters,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("goduct: analyze: %w", err)
@@ -300,6 +306,11 @@ flags:
                  continue per ADR 0029)
   --framework <fw>  target framework for --go-adapter: chi (default),
                     gin, echo, mux (Go 1.22+ net/http). Per ADR 0030.
+  --adapter Q=W     custom type adapter (repeatable): map Go qualified
+                    type name Q to JSON wire shape W in
+                    {string,number,boolean,unknown}. Built-ins (ADR 0017)
+                    win over user adapters. Per ADR 0032. Example:
+                      --adapter github.com/shopspring/decimal.Decimal=string
 
 exit codes: 0 ok | 1 analyze/generate/IO error | 2 usage error
 `)
