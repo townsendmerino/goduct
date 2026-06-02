@@ -159,6 +159,21 @@ var frameworks = map[string]*framework{
 	},
 }
 
+// SupportedFrameworks returns the framework names GenerateFramework
+// accepts, in the canonical chi/gin/echo/mux order. Used by the CLI
+// for usage help and pre-analysis validation of --framework.
+func SupportedFrameworks() []string {
+	return []string{"chi", "gin", "echo", "mux"}
+}
+
+// FrameworkSupported reports whether name is one of SupportedFrameworks.
+// Cheap probe so the CLI can reject bad --framework values with exit 2
+// before invoking the analyzer.
+func FrameworkSupported(name string) bool {
+	_, ok := frameworks[name]
+	return ok
+}
+
 // Generate writes goduct_routes.go for api to w using the chi framework.
 // This preserves the v0.1 generator entrypoint shape (ADR 0022 §1) and
 // the v0.1 byte output for the default `goduct gen --go-adapter` form.

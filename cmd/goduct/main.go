@@ -65,12 +65,13 @@ func runGen(args []string) int {
 		sel[s.name] = fs.Bool(s.name, false, "generate "+s.out)
 	}
 	var (
-		all   = fs.Bool("all", false, "generate every generator")
-		out   = fs.String("out", "", "output directory for the TypeScript generators")
-		dir   = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
-		tags  = fs.String("tags", "", "comma-separated build tags")
-		tests = fs.Bool("tests", false, "include _test.go files when loading")
-		watch = fs.Bool("watch", false, "re-run generators on source-file change (Ctrl-C to stop)")
+		all       = fs.Bool("all", false, "generate every generator")
+		out       = fs.String("out", "", "output directory for the TypeScript generators")
+		dir       = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
+		tags      = fs.String("tags", "", "comma-separated build tags")
+		tests     = fs.Bool("tests", false, "include _test.go files when loading")
+		watch     = fs.Bool("watch", false, "re-run generators on source-file change (Ctrl-C to stop)")
+		framework = fs.String("framework", "chi", "go-adapter framework: chi|gin|echo|mux")
 	)
 
 	// README puts the package pattern first, before any flags; the
@@ -90,6 +91,15 @@ func runGen(args []string) int {
 		return 2
 	}
 
+	// --framework is validated pre-analysis so bad values exit 2 fast.
+	// The flag is silently ignored when --go-adapter is not selected.
+	if !goadapter.FrameworkSupported(*framework) {
+		fmt.Fprintf(os.Stderr,
+			"goduct: unknown --framework %q (want one of: %s)\n",
+			*framework, strings.Join(goadapter.SupportedFrameworks(), ", "))
+		return 2
+	}
+
 	chosen := pickGenerators(sel, *all)
 	if len(chosen) == 0 {
 		fmt.Fprintln(os.Stderr,
@@ -97,6 +107,19 @@ func runGen(args []string) int {
 				"(use --types/--zod/--client/--hooks/--go-adapter or --all)")
 		usage()
 		return 2
+	}
+
+	// Inject the framework choice into the go-adapter spec's fn. Other
+	// specs are unaffected. Per ADR 0030 §2 the generator's ADR 0022 §1
+	// Generate signature is preserved via this closure; the multi-arg
+	// variant is GenerateFramework, called via the closure.
+	for i, s := range chosen {
+		if s.name == "go-adapter" {
+			fw := *framework
+			chosen[i].fn = func(a *ir.API, w io.Writer) error {
+				return goadapter.GenerateFramework(a, w, fw)
+			}
+		}
 	}
 	needOut := false
 	for _, s := range chosen {
@@ -261,8 +284,9 @@ generators (opt-in; pick any, or --all):
   --client       client.ts         (typed fetch client)
   --hooks        hooks.ts          (React Query hooks; peer dep
                                     @tanstack/react-query v5)
-  --go-adapter   goduct_routes.go  (chi wiring; written beside the source
-                                    package per ADR 0009, NOT under --out)
+  --go-adapter   goduct_routes.go  (router wiring; written beside the
+                                    source package per ADR 0009, NOT
+                                    under --out; framework via --framework)
   --all          all of the above
 
 flags:
@@ -274,6 +298,8 @@ flags:
   --watch        re-run generators on source-file change; Ctrl-C to stop
                  (first run aborts on error; subsequent runs print and
                  continue per ADR 0029)
+  --framework <fw>  target framework for --go-adapter: chi (default),
+                    gin, echo, mux (Go 1.22+ net/http). Per ADR 0030.
 
 exit codes: 0 ok | 1 analyze/generate/IO error | 2 usage error
 `)
