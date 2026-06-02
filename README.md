@@ -285,7 +285,15 @@ Wire format is stable:
 | `json.RawMessage` | `unknown` (JSON passthrough) |
 | `github.com/google/uuid.UUID` | string |
 
-Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, custom `MarshalJSON`, …) are out of scope for v0.1 — wrap them in a string field and convert at the handler boundary. goduct errors loudly with a `file:line` pointer rather than emitting a wrong wire type — no silent skipping.
+Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, custom `MarshalJSON`, …) declare their wire shape via the `--adapter` flag ([ADR 0032](docs/decisions/0032-custom-type-adapters.md)). Without an adapter, goduct errors loudly with a `file:line` pointer and a remediation pointer to `--adapter` — no silent skipping.
+
+```bash
+goduct gen ./api --out ./web --all \
+  --adapter github.com/shopspring/decimal.Decimal=string \
+  --adapter math/big.Int=string
+```
+
+Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` (or default JSON encoding) is the source of truth on the Go side; goduct just renders the wire-shape on the TS/zod side.
 
 **Validation tags** (translated to zod): `required`, `email`, `url`, `min`, `max`, `len`, `oneof` (on string fields → `z.enum([...])`). See [ADR 0006](docs/decisions/0006-validation-tag-translation.md). Tags zod can't express are not enforced client-side but still run server-side via go-playground/validator.
 
@@ -295,7 +303,7 @@ Other rich types (`decimal.Decimal`, `big.Int`, `net/url.URL`, `civil.Date`, cus
 
 **Known v0.2 polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
 
-**Not yet supported (planned):** generics; custom `MarshalJSON` / custom type adapters; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
+**Not yet supported (planned):** generics; SSE/streaming; WebSockets; OpenAPI export; gRPC bridging. See the [Roadmap](#roadmap).
 
 ---
 
@@ -329,7 +337,7 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.1** (this release) — chi, idiomatic handlers, types + zod + typed fetch client + go-adapter, basic validation, typed errors.
 
-**v0.2** (in progress on `main`) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode. Remaining for v0.2 tag: generics, custom type adapters (e.g. `decimal.Decimal` → `string`).
+**v0.2** (in progress on `main`) — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`). Remaining for v0.2 tag: generics.
 
 **v0.3** — OpenAPI 3.1 export, Swagger UI generator, Postman collection export.
 

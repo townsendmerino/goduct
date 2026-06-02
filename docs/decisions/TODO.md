@@ -85,6 +85,34 @@ that converts each framework's context to `(w, r)` and calls the
 user's function. **Risk: low** — most users picking raw mode are
 already on chi/mux for the `http.HandlerFunc` shape.
 
+## [ ] Custom type adapters: chi-basic golden coverage
+
+[ADR 0032](0032-custom-type-adapters.md) ships the `--adapter` flag +
+analyzer + generator support, tested via a synthetic `math/big.Int`
+fixture in `internal/analyzer/adapters_test.go`. chi-basic itself has
+no adapter-eligible field (no third-party rich types in the example);
+adding one (e.g. `net/url.URL` with `--adapter net/url.URL=string`)
+would exercise the full pipeline against goldens but touch every TS
+golden + all 4 adapter goldens. Same shape as the raw-HandlerFunc
+coverage gap.
+
+**Trigger / action:** add a coverage example exercising one adapter
+on a wire-visible field, OR accept the synthetic-test coverage as
+sufficient and close this entry. Spec-trust applies until then.
+
+## [ ] Custom type adapters: project config file (`goduct.toml`)
+
+[ADR 0032](0032-custom-type-adapters.md) ships `--adapter` as a
+repeatable CLI flag. Real projects with >5 adapters will want to
+declare them once in a project-root config file rather than threading
+them through every Makefile target / CI step.
+
+**Trigger / action (v0.3 or whenever it bites):** add a minimal
+config-file reader (TOML or hand-rolled key-value) at the project
+root (e.g. `goduct.toml`); CLI `--adapter` extends/overrides the file.
+Compose: file is the project default; flag is the per-invocation
+override.
+
 ## [ ] goadapter: custom status-code mapping incomplete
 
 goadapter's `http.Status*` mapping covers 200/201/204 — the only codes
