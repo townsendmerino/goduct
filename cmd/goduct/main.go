@@ -22,6 +22,8 @@ import (
 	"github.com/townsendmerino/goduct/internal/generators/goadapter"
 	"github.com/townsendmerino/goduct/internal/generators/hooks"
 	"github.com/townsendmerino/goduct/internal/generators/openapi"
+	"github.com/townsendmerino/goduct/internal/generators/postman"
+	"github.com/townsendmerino/goduct/internal/generators/swaggerui"
 	"github.com/townsendmerino/goduct/internal/generators/tsclient"
 	"github.com/townsendmerino/goduct/internal/generators/tstypes"
 	"github.com/townsendmerino/goduct/internal/generators/zod"
@@ -56,6 +58,8 @@ var specs = []genSpec{
 	{"client", "client.ts", tsclient.Generate, false},
 	{"hooks", "hooks.ts", hooks.Generate, false},
 	{"openapi", "openapi.json", openapi.Generate, false},
+	{"swagger-ui", "swagger-ui.html", swaggerui.Generate, false},
+	{"postman", "postman_collection.json", postman.Generate, false},
 	{"go-adapter", "goduct_routes.go", goadapter.Generate, true},
 }
 
@@ -108,8 +112,8 @@ func runGen(args []string) int {
 	chosen := pickGenerators(sel, *all)
 	if len(chosen) == 0 {
 		fmt.Fprintln(os.Stderr,
-			"goduct: no generator selected "+
-				"(use --types/--zod/--client/--hooks/--openapi/--go-adapter or --all)")
+			"goduct: no generator selected (use --types/--zod/--client/"+
+				"--hooks/--openapi/--swagger-ui/--postman/--go-adapter or --all)")
 		usage()
 		return 2
 	}
@@ -295,6 +299,12 @@ generators (opt-in; pick any, or --all):
   --openapi      openapi.json      (OpenAPI 3.1 spec; framework-
                                     independent; generics flattened
                                     per-instantiation. Per ADR 0034.)
+  --swagger-ui   swagger-ui.html   (Static HTML loading Swagger UI v5
+                                    from unpkg.com; references the
+                                    sibling openapi.json. Per ADR 0035.)
+  --postman      postman_collection.json (Postman v2.1 collection;
+                                    {{baseUrl}} variable; tag folders;
+                                    synthesized request bodies. ADR 0035.)
   --go-adapter   goduct_routes.go  (router wiring; written beside the
                                     source package per ADR 0009, NOT
                                     under --out; framework via --framework)
