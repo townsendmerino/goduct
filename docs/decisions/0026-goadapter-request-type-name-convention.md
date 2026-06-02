@@ -1,6 +1,6 @@
 # 0026. goadapter request-type-name convention (v0.1)
 
-**Status:** Accepted
+**Status:** Superseded by [0027](0027-enrich-ir-for-go-side-codegen.md)
 **Date:** 2026-05-18
 
 ## Context
