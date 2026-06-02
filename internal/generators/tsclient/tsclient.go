@@ -12,7 +12,6 @@ package tsclient
 import (
 	"io"
 	"strings"
-	"unicode"
 
 	"github.com/townsendmerino/goduct/internal/gen"
 	"github.com/townsendmerino/goduct/internal/ir"
@@ -134,7 +133,7 @@ func renderMethod(r ir.Route) string {
 	if hasResp {
 		ret = "Promise<t." + short(r.ResponseType.Named) + ">"
 	}
-	b.WriteString("      " + methodName(r.HandlerName, r.Tag) +
+	b.WriteString("      " + gen.MethodName(r.HandlerName, r.Tag) +
 		": async (" + signature(r) + "): " + ret + " => {\n")
 
 	if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
@@ -204,38 +203,6 @@ func pathExpr(path string) string {
 	return "`" + strings.Join(segs, "/") + "`"
 }
 
-// methodName strips the tag's PascalCase (plural then singular) suffix
-// from the handler name and lowercases the first rune (camelCase). If no
-// suffix matches, it just lowercases the first rune of the handler name.
-// Generator-local; the chi-basic golden is the spec anchor.
-func methodName(handler, tag string) string {
-	singular := tag
-	if strings.HasSuffix(tag, "s") {
-		singular = strings.TrimSuffix(tag, "s")
-	}
-	stem := handler
-	for _, suffix := range []string{pascal(tag), pascal(singular)} {
-		if strings.HasSuffix(stem, suffix) && len(stem) > len(suffix) {
-			stem = stem[:len(stem)-len(suffix)]
-			break
-		}
-	}
-	if stem == "" {
-		stem = handler
-	}
-	rs := []rune(stem)
-	rs[0] = unicode.ToLower(rs[0])
-	return string(rs)
-}
-
-func pascal(s string) string {
-	if s == "" {
-		return s
-	}
-	rs := []rune(s)
-	rs[0] = unicode.ToUpper(rs[0])
-	return string(rs)
-}
 
 func short(qualified string) string {
 	if i := strings.LastIndex(qualified, "."); i >= 0 {

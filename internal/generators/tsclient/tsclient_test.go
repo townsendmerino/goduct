@@ -67,26 +67,6 @@ func TestGenerate_Golden(t *testing.T) {
 	}
 }
 
-func TestMethodName(t *testing.T) {
-	cases := []struct {
-		handler, tag, want string
-	}{
-		{"GetUser", "users", "get"},
-		{"ListUsers", "users", "list"},
-		{"CreateUser", "users", "create"},
-		{"UpdateUser", "users", "update"},
-		{"DeleteUser", "users", "delete"},
-		{"BulkCreateUser", "users", "bulkCreate"}, // camelCase preserved
-		{"Healthcheck", "system", "healthcheck"},  // no suffix match → first-rune lower
-		{"GetWidget", "inventory", "getWidget"},   // tag has no 's'; no match
-	}
-	for _, c := range cases {
-		if got := methodName(c.handler, c.tag); got != c.want {
-			t.Errorf("methodName(%q,%q) = %q, want %q", c.handler, c.tag, got, c.want)
-		}
-	}
-}
-
 func TestPathExpr(t *testing.T) {
 	cases := map[string]string{
 		"/users":     "`/users`",

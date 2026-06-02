@@ -125,3 +125,48 @@ func jsdocCore(typeName, text string) string {
 	r, sz := utf8.DecodeRuneInString(s)
 	return string(unicode.ToUpper(r)) + s[sz:]
 }
+
+// MethodName derives the tag-grouped client method name from a handler
+// name and its route tag: it strips the tag's PascalCase suffix (plural
+// then singular fallback) from the handler and lowercases the first rune
+// (camelCase). If no suffix matches, it returns the handler with the
+// first rune lowercased. Examples (tag = "users"):
+//
+//	GetUser    -> "get"
+//	ListUsers  -> "list"
+//	CreateUser -> "create"
+//
+// Shared between tsclient and the hooks generator per ADR 0022 §8 so
+// both agree on the method name embedded in queryKey (ADR 0028 §4).
+// The tsclient golden is the spec anchor; the move from tsclient to
+// here is verified by that golden's byte-identity.
+func MethodName(handler, tag string) string {
+	singular := tag
+	if strings.HasSuffix(tag, "s") {
+		singular = strings.TrimSuffix(tag, "s")
+	}
+	stem := handler
+	for _, suffix := range []string{Pascal(tag), Pascal(singular)} {
+		if strings.HasSuffix(stem, suffix) && len(stem) > len(suffix) {
+			stem = stem[:len(stem)-len(suffix)]
+			break
+		}
+	}
+	if stem == "" {
+		stem = handler
+	}
+	rs := []rune(stem)
+	rs[0] = unicode.ToLower(rs[0])
+	return string(rs)
+}
+
+// Pascal uppercases the first rune of s and returns the rest unchanged.
+// Used by MethodName; exported because tsclient and hooks both need it.
+func Pascal(s string) string {
+	if s == "" {
+		return s
+	}
+	rs := []rune(s)
+	rs[0] = unicode.ToUpper(rs[0])
+	return string(rs)
+}
