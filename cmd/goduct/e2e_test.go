@@ -101,10 +101,11 @@ func TestEndToEnd_ChiBasic(t *testing.T) {
 		{filepath.Join(outDir, "schemas.ts"), exp("client/schemas.ts")},
 		{filepath.Join(outDir, "client.ts"), exp("client/client.ts")},
 		{filepath.Join(outDir, "hooks.ts"), exp("client/hooks.ts")},
+		{filepath.Join(outDir, "openapi.json"), exp("openapi.json")},
 		{adapter, exp("chi/goduct_routes.go")},
 	}
 
-	// 4. All five exist (the beside-source adapter included).
+	// 4. All six exist (the beside-source adapter included).
 	for _, f := range files {
 		if _, err := os.Stat(f.got); err != nil {
 			t.Fatalf("expected output missing: %s: %v", f.got, err)

@@ -21,6 +21,7 @@ import (
 	"github.com/townsendmerino/goduct/internal/analyzer"
 	"github.com/townsendmerino/goduct/internal/generators/goadapter"
 	"github.com/townsendmerino/goduct/internal/generators/hooks"
+	"github.com/townsendmerino/goduct/internal/generators/openapi"
 	"github.com/townsendmerino/goduct/internal/generators/tsclient"
 	"github.com/townsendmerino/goduct/internal/generators/tstypes"
 	"github.com/townsendmerino/goduct/internal/generators/zod"
@@ -54,6 +55,7 @@ var specs = []genSpec{
 	{"zod", "schemas.ts", zod.Generate, false},
 	{"client", "client.ts", tsclient.Generate, false},
 	{"hooks", "hooks.ts", hooks.Generate, false},
+	{"openapi", "openapi.json", openapi.Generate, false},
 	{"go-adapter", "goduct_routes.go", goadapter.Generate, true},
 }
 
@@ -107,7 +109,7 @@ func runGen(args []string) int {
 	if len(chosen) == 0 {
 		fmt.Fprintln(os.Stderr,
 			"goduct: no generator selected "+
-				"(use --types/--zod/--client/--hooks/--go-adapter or --all)")
+				"(use --types/--zod/--client/--hooks/--openapi/--go-adapter or --all)")
 		usage()
 		return 2
 	}
@@ -290,6 +292,9 @@ generators (opt-in; pick any, or --all):
   --client       client.ts         (typed fetch client)
   --hooks        hooks.ts          (React Query hooks; peer dep
                                     @tanstack/react-query v5)
+  --openapi      openapi.json      (OpenAPI 3.1 spec; framework-
+                                    independent; generics flattened
+                                    per-instantiation. Per ADR 0034.)
   --go-adapter   goduct_routes.go  (router wiring; written beside the
                                     source package per ADR 0009, NOT
                                     under --out; framework via --framework)
