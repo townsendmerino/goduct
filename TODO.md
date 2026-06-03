@@ -11,16 +11,16 @@ finer-grained, ADR-anchored punch list.
 
 ---
 
-## v0.5.1 — closure pass on the v0.5 wire-shape bundle
+## v0.6.1 — closure pass on the v0.6 wire-shape bundle
 
-Seven items deferred during the v0.5 work: five WebSocket-side per
+Seven items deferred during the v0.6 work: five WebSocket-side per
 [ADR 0044 §9](docs/decisions/0044-websocket-bridge.md), two
 SSE-side per [ADR 0041 §7](docs/decisions/0041-sse-streaming.md)
 (and reaffirmed in [ADR 0043 §1](docs/decisions/0043-v06-closure-pass.md)).
 
 WebSocket polish:
 
-- **Subprotocols** (Sec-WebSocket-Protocol). v0.5 always uses the
+- **Subprotocols** (Sec-WebSocket-Protocol). v0.6 always uses the
   default subprotocol. Adding a `goduct:wssubprotocol` directive
   is a small follow-up. **Trigger:** user reports needing a
   named subprotocol (mqtt, graphql-ws, etc.).
@@ -30,7 +30,7 @@ WebSocket polish:
   future ADR. **Trigger:** user reports keepalive-related
   disconnections.
 
-- **Binary frames.** v0.5 messages are all JSON text frames via
+- **Binary frames.** v0.6 messages are all JSON text frames via
   wsjson. Binary support is a different IR shape (message type
   is `[]byte`, not a named struct). **Trigger:** user reports a
   protobuf-over-WS or audio-streaming use case.

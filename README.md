@@ -447,15 +447,17 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.4.1** — Closure pass: `goduct:requestexample`, per-handler `goduct:security <scheme>` override, plus chi-basic coverage for the `url`/`len` validators, combined path+query argument object, and `bool`/`float` query-param conversion (the v0.2-era spec-trust caveats).
 
-**v0.5** (this release) — Three new wire shapes plus a typed multi-file upload story, all bundled in one cut:
+**v0.5** — Server-Sent Events ([ADR 0041](docs/decisions/0041-sse-streaming.md)): handlers with `func(ctx, T) (<-chan E, error)` become SSE endpoints; TS client returns `AsyncIterable<E>`; the four framework adapters share a `goduct.SSEStream` runtime helper.
 
-- **Server-Sent Events** ([ADR 0041](docs/decisions/0041-sse-streaming.md)) — handlers with `func(ctx, T) (<-chan E, error)` become SSE endpoints; TS client returns `AsyncIterable<E>`; the four framework adapters share a `goduct.SSEStream` runtime helper. chi-basic includes a `WatchUserEvents` demo ([ADR 0043](docs/decisions/0043-v06-closure-pass.md)).
-- **File uploads** ([ADR 0042](docs/decisions/0042-file-uploads.md), [ADR 0043](docs/decisions/0043-v06-closure-pass.md)) — typed multipart (`*multipart.FileHeader` single or `[]*multipart.FileHeader` multi, mixed with `form:"..."` text fields) and a raw-mode `goduct:upload` toggle. 32 MiB ParseMultipartForm cap by default; override via `goduct.json`'s `upload.maxBytes`. Per-field byte limit via `validate:"maxbytes=N"` (server-enforced).
+**v0.6** (this release) — File uploads, WebSocket, and the chi-basic SSE demo. Bundles three previously-planned milestones in one cut:
+
+- **File uploads** ([ADR 0042](docs/decisions/0042-file-uploads.md), [ADR 0043](docs/decisions/0043-v06-closure-pass.md)) — typed multipart (`*multipart.FileHeader` single or `[]*multipart.FileHeader` multi, mixed with `form:"..."` text fields) and a raw-mode `goduct:upload` toggle. 32 MiB `ParseMultipartForm` cap by default; override via `goduct.json`'s `upload.maxBytes`. Per-field byte limit via `validate:"maxbytes=N"` (server-enforced).
 - **WebSocket** ([ADR 0044](docs/decisions/0044-websocket-bridge.md)) — handlers with `func(ctx, T, *goduct.WSConn[S, C]) error` become typed full-duplex endpoints; TS client returns `WSConnection<S, C>` with `.send` + AsyncIterable `.messages()`; runtime wraps [coder/websocket](https://github.com/coder/websocket) (first non-stdlib runtime dep).
+- **chi-basic SSE demo + closure-pass polish** ([ADR 0043](docs/decisions/0043-v06-closure-pass.md)) — `WatchUserEvents` exercises v0.5's SSE shape end-to-end in the example; multi-file uploads, `upload.maxBytes`, and `maxbytes` validator close the v0.6 upload deferrals in the same commit train.
 
-**v0.5.1** — Polish pass for the v0.5 deferred items (see [TODO.md](TODO.md)): WebSocket subprotocols, ping/pong tuning, binary frames, AsyncAPI export, TS-side reconnection; SSE named events and Last-Event-ID reconnect.
+**v0.6.1** — Polish pass for the v0.6 deferred items (see [TODO.md](TODO.md)): WebSocket subprotocols, ping/pong tuning, binary frames, AsyncAPI export, TS-side reconnection; SSE named events and Last-Event-ID reconnect.
 
-**v0.6** — Open. Likely candidates: multi-package input, new client-language generators (Swift / Kotlin / Python), `goduct doctor` diagnostic command. See [TODO.md](TODO.md)'s Maybe / opportunistic bucket.
+**v0.7** — Open. Likely candidates: multi-package input, new client-language generators (Swift / Kotlin / Python), `goduct doctor` diagnostic command. See [TODO.md](TODO.md)'s Maybe / opportunistic bucket.
 
 ---
 
