@@ -96,10 +96,16 @@ type header struct {
 	Type  string `json:"type,omitempty"`
 }
 
+// body is Postman's body envelope. Mode is "raw" for JSON bodies
+// and "formdata" for ADR 0042 multipart uploads. Raw + Options are
+// only emitted in raw mode; FormData is only emitted in formdata
+// mode. omitempty + pointer-typed FormData keep the JSON-body shape
+// byte-identical when uploads aren't present.
 type body struct {
-	Mode    string      `json:"mode"`
-	Raw     string      `json:"raw"`
-	Options bodyOptions `json:"options"`
+	Mode     string         `json:"mode"`
+	Raw      string         `json:"raw,omitempty"`
+	Options  *bodyOptions   `json:"options,omitempty"`
+	FormData []formdataItem `json:"formdata,omitempty"`
 }
 
 type bodyOptions struct {
@@ -108,6 +114,13 @@ type bodyOptions struct {
 
 type bodyOptionsRaw struct {
 	Language string `json:"language"`
+}
+
+// formdataItem is one row of a Postman formdata body. Type is
+// "file" for multipart file parts and "text" for form text parts.
+type formdataItem struct {
+	Key  string `json:"key"`
+	Type string `json:"type"`
 }
 
 type url struct {
@@ -191,7 +204,14 @@ func buildRequest(api *ir.API, r ir.Route) request {
 		rd.Description = d
 	}
 	if r.BodyType != nil {
-		rd.Body = buildBody(api, *r.BodyType)
+		// ADR 0042: upload routes use Postman's formdata body mode
+		// (one row per multipart/form field); everything else uses
+		// the JSON raw mode.
+		if r.Upload {
+			rd.Body = buildUploadBody(api, *r.BodyType)
+		} else {
+			rd.Body = buildBody(api, *r.BodyType)
+		}
 	}
 	return request{
 		Name:    r.HandlerName,
@@ -261,10 +281,37 @@ func buildBody(api *ir.API, ref ir.TypeRef) *body {
 	return &body{
 		Mode: "raw",
 		Raw:  indented.String(),
-		Options: bodyOptions{
+		Options: &bodyOptions{
 			Raw: bodyOptionsRaw{Language: "json"},
 		},
 	}
+}
+
+// buildUploadBody renders a Postman formdata body for a typed
+// upload route (ADR 0042). One row per multipart/form field; file
+// parts get type:"file", text parts get type:"text". The user fills
+// in actual values in Postman.
+func buildUploadBody(api *ir.API, ref ir.TypeRef) *body {
+	if ref.Kind != ir.KindNamed {
+		return nil
+	}
+	td, ok := api.Types[ref.Named]
+	if !ok {
+		return nil
+	}
+	uploadFields := gen.UploadFields(td)
+	if len(uploadFields) == 0 {
+		return nil
+	}
+	items := make([]formdataItem, 0, len(uploadFields))
+	for _, f := range uploadFields {
+		t := "text"
+		if f.Source == ir.FieldSourceMultipart {
+			t = "file"
+		}
+		items = append(items, formdataItem{Key: f.JSONName, Type: t})
+	}
+	return &body{Mode: "formdata", FormData: items}
 }
 
 // ----------------------------------------------------------------

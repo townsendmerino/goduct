@@ -34,7 +34,9 @@ interface RequestOpts {
 
 async function request(opts: ClientOptions, r: RequestOpts): Promise<unknown> {
   const f = opts.fetch ?? fetch;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const isForm = typeof FormData !== "undefined" && r.body instanceof FormData;
+  const headers: Record<string, string> = {};
+  if (!isForm) headers["Content-Type"] = "application/json";
   if (opts.headers) Object.assign(headers, await opts.headers());
 
   let url = opts.baseUrl + r.path;
@@ -47,10 +49,15 @@ async function request(opts: ClientOptions, r: RequestOpts): Promise<unknown> {
     if (qs) url += "?" + qs;
   }
 
+  let body: BodyInit | undefined;
+  if (r.body === undefined) body = undefined;
+  else if (isForm) body = r.body as FormData;
+  else body = JSON.stringify(r.body);
+
   const res = await f(url, {
     method: r.method,
     headers,
-    body: r.body === undefined ? undefined : JSON.stringify(r.body),
+    body,
   });
 
   if (res.status === 204) return undefined;
@@ -121,6 +128,19 @@ export function createClient(opts: ClientOptions) {
           method: "DELETE",
           path: `/users/${encodeURIComponent(params.id)}`,
         });
+      },
+
+      /** Stores a new avatar image for the user. */
+      uploadAvatar: async (params: { id: string }, body: t.UploadAvatarRequest): Promise<t.User> => {
+        const fd = new FormData();
+        fd.append("file", body.file);
+        if (body.caption !== undefined) fd.append("caption", body.caption);
+        const data = await request(opts, {
+          method: "POST",
+          path: `/users/${encodeURIComponent(params.id)}/avatar`,
+          body: fd,
+        });
+        return schemas.User.parse(data);
       },
     },
   };

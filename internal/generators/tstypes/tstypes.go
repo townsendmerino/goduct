@@ -55,6 +55,7 @@ func renderType(td ir.TypeDef, adapters map[string]string) string {
 	switch td.Kind {
 	case ir.TypeStruct:
 		s.WriteString("export interface " + td.Name + tparams + " {\n")
+		// JSON wire fields render with their TS-typed shape.
 		for _, f := range gen.WireFields(td) {
 			if fd := gen.JSDoc(f.GoName, f.Doc); fd != "" {
 				s.WriteString("  /** " + fd + " */\n")
@@ -64,6 +65,30 @@ func renderType(td ir.TypeDef, adapters map[string]string) string {
 				opt = "?"
 			}
 			s.WriteString("  " + f.JSONName + opt + ": " + tsType(f.Type, adapters) + ";\n")
+		}
+		// ADR 0042: multipart/form fields on upload request structs.
+		// Multipart file fields render as `File | Blob` (the browser/
+		// Node-with-FormData type); form text fields render via tsType
+		// like any other primitive.
+		for _, f := range gen.UploadFields(td) {
+			if fd := gen.JSDoc(f.GoName, f.Doc); fd != "" {
+				s.WriteString("  /** " + fd + " */\n")
+			}
+			opt := ""
+			if f.Optional {
+				opt = "?"
+			}
+			// Multipart file fields render as `File | Blob`
+			// (the stand-in `multipart.FileHeader` builtin on the
+			// TypeRef would otherwise panic tsType, which only
+			// knows wire-translatable builtins).
+			var ts string
+			if f.Source == ir.FieldSourceMultipart {
+				ts = "File | Blob"
+			} else {
+				ts = tsType(f.Type, adapters)
+			}
+			s.WriteString("  " + f.JSONName + opt + ": " + ts + ";\n")
 		}
 		s.WriteString("}")
 	case ir.TypeEnum:

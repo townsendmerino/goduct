@@ -15,6 +15,7 @@ package api
 
 import (
 	"context"
+	"mime/multipart"
 
 	goduct "github.com/townsendmerino/goduct/runtime"
 )
@@ -145,4 +146,21 @@ type DeleteUserRequest struct {
 func DeleteUser(ctx context.Context, req DeleteUserRequest) error {
 	_ = req
 	return nil
+}
+
+// ---- POST /users/:id/avatar (multipart upload, ADR 0042) ----
+
+type UploadAvatarRequest struct {
+	UserID  string                `path:"id"             validate:"required"`
+	File    *multipart.FileHeader `multipart:"file"      validate:"required"`
+	Caption string                `form:"caption"`
+}
+
+// UploadAvatar stores a new avatar image for the user.
+//
+// goduct:route POST /users/:id/avatar
+// goduct:tag   users
+func UploadAvatar(ctx context.Context, req UploadAvatarRequest) (*User, error) {
+	_ = req.File
+	return &User{ID: req.UserID, Email: "u@example.com", Name: "Example", Status: UserStatusActive}, nil
 }

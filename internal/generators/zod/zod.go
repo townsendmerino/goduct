@@ -49,6 +49,24 @@ func renderSchema(td ir.TypeDef, adapters map[string]string) string {
 		for _, f := range gen.WireFields(td) {
 			b.WriteString("  " + f.JSONName + ": " + fieldExpr(f, adapters) + ",\n")
 		}
+		// ADR 0042: upload structs render multipart fields as z.any()
+		// (file objects can't be cleanly validated client-side; the
+		// real check is server-side) and form fields with their
+		// regular zod expression. Multipart must short-circuit
+		// before fieldExpr — its TypeRef carries the stand-in
+		// `multipart.FileHeader` builtin which zodExpr can't render.
+		for _, f := range gen.UploadFields(td) {
+			var expr string
+			if f.Source == ir.FieldSourceMultipart {
+				expr = "z.any()"
+				if f.Optional {
+					expr += ".optional()"
+				}
+			} else {
+				expr = fieldExpr(f, adapters)
+			}
+			b.WriteString("  " + f.JSONName + ": " + expr + ",\n")
+		}
 		b.WriteString("})")
 	case ir.TypeEnum:
 		b.WriteString(enumExpr(td))

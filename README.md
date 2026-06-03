@@ -339,6 +339,27 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **Server-Sent Events ([ADR 0041](docs/decisions/0041-sse-streaming.md)):** a handler with signature `func(ctx, T) (<-chan E, error)` becomes an SSE endpoint. The generated TS client method returns `AsyncIterable<E>` (iterate with `for await`); the four framework adapters all delegate to a generic `goduct.SSEStream` runtime helper that handles headers, flushing, and ctx-cancel. OpenAPI emits `text/event-stream`. Postman and React Query hooks skip streaming routes (Postman doesn't model SSE; React Query v5 has no first-class iterator hook); users call the AsyncIterable directly.
 
+**File uploads ([ADR 0042](docs/decisions/0042-file-uploads.md)):** two shapes share the same TS-client + OpenAPI surface. The **typed shape** mixes `*multipart.FileHeader` fields tagged `multipart:"..."` with text fields tagged `form:"..."` in the same request struct; the generated adapter calls `ParseMultipartForm` and populates each field. The **raw shape** is an existing raw handler plus `goduct:upload`; the user owns the multipart parsing while goduct still emits the FormData-aware TS client + `multipart/form-data` OpenAPI metadata. `json:` and `multipart:`/`form:` on the same struct loud-fail (a wire format is one or the other). 32 MB is the typed-mode in-memory cap (`ParseMultipartForm` default); larger uploads use raw mode.
+
+```go
+type UploadAvatarRequest struct {
+    UserID  string                `path:"id"        validate:"required"`
+    File    *multipart.FileHeader `multipart:"file" validate:"required"`
+    Caption string                `form:"caption"`
+}
+
+// goduct:route POST /users/:id/avatar
+func UploadAvatar(ctx context.Context, req UploadAvatarRequest) (*User, error) {
+    f, _ := req.File.Open()
+    defer f.Close()
+    // ... save to storage ...
+}
+```
+
+```typescript
+await api.users.uploadAvatar({ id: "u_1" }, { file: selectedFile, caption: "selfie" });
+```
+
 ```go
 // goduct:route GET /orders/:id/events
 // goduct:tag   orders
@@ -405,9 +426,11 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.4.1** — Closure pass: `goduct:requestexample`, per-handler `goduct:security <scheme>` override, plus chi-basic coverage for the `url`/`len` validators, combined path+query argument object, and `bool`/`float` query-param conversion (the v0.2-era spec-trust caveats).
 
-**v0.5** (this release) — Server-Sent Events: handlers with `func(ctx, T) (<-chan E, error)` shape become SSE endpoints; TS client returns `AsyncIterable<E>`; the four framework adapters share a `goduct.SSEStream` runtime helper.
+**v0.5** — Server-Sent Events: handlers with `func(ctx, T) (<-chan E, error)` shape become SSE endpoints; TS client returns `AsyncIterable<E>`; the four framework adapters share a `goduct.SSEStream` runtime helper.
 
-**v0.6** — File upload helpers, WebSocket bridge (probably).
+**v0.6** (this release) — File uploads in two shapes: typed multipart (request struct mixes `multipart:"file"` and `form:"caption"` tags) and a raw-mode `goduct:upload` toggle. Stdlib only, 32 MB typed cap; chi-basic ships an UploadAvatar route.
+
+**v0.7** — WebSocket bridge (probably), plus the deferrals in [TODO.md](TODO.md).
 
 **Maybe** — Swift client, Kotlin client, Python client. These follow the same pattern: implement a `Generator`, consume the IR.
 

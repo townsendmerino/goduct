@@ -101,6 +101,14 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		return fail("handler %s: goduct:request/response directives are not allowed on idiomatic handlers "+
 			"(use them only with the raw http.HandlerFunc signature, ADR 0031)", name)
 	}
+	// ADR 0042: goduct:upload is raw-mode only. On idiomatic
+	// handlers the multipart:/form: field tags on the request struct
+	// are the signal; the directive would be a redundant second
+	// source of truth.
+	if dirs.Upload {
+		return fail("handler %s: goduct:upload is not allowed on idiomatic handlers "+
+			"(use multipart:\"...\"/form:\"...\" field tags on the request struct instead; ADR 0042)", name)
+	}
 
 	if sig.Params().Len() != 2 {
 		return fail("handler %s must be func(context.Context, T) (*U, error) or func(context.Context, T) error", name)
@@ -208,9 +216,19 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 	}
 	route.SuccessStatus = status
 
-	hasJSON, err := extractParams(pkg, reqNamed, &route)
+	hasJSON, hasUpload, err := extractParams(pkg, reqNamed, &route)
 	if err != nil {
 		return ir.Route{}, err // ParseStructField already returns ADR 0019 Format B
+	}
+
+	// ADR 0042: a struct cannot be JSON and multipart on the wire —
+	// the body's Content-Type is one or the other. Loud-fail with a
+	// pointer at the request type so the user knows which struct to
+	// fix.
+	if hasJSON && hasUpload {
+		return fail("request type %s mixes json: and multipart:/form: tags "+
+			"(a struct cannot be both a JSON body and a multipart form on the wire)",
+			reqNamed.Obj().Name())
 	}
 
 	bodyAllowed := route.Method != "GET" && route.Method != "HEAD" && route.Method != "DELETE"
@@ -218,12 +236,21 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		return fail("%s method does not support a request body, but %s has json-tagged fields",
 			route.Method, reqNamed.Obj().Name())
 	}
-	if bodyAllowed && hasJSON {
+	if !bodyAllowed && hasUpload {
+		return fail("%s method does not support a request body, but %s has multipart/form fields",
+			route.Method, reqNamed.Obj().Name())
+	}
+	if bodyAllowed && (hasJSON || hasUpload) {
 		bRef, err := namedRefWithArgs(reqNamed)
 		if err != nil {
 			return fail("handler %s body type: %v", name, err)
 		}
 		route.BodyType = bRef
+	}
+	// ADR 0042: Route.Upload is true for typed uploads (driven by
+	// the multipart/form field detection above).
+	if hasUpload {
+		route.Upload = true
 	}
 	if respNamed != nil {
 		rRef, err := namedRefWithArgs(respNamed)
@@ -323,15 +350,17 @@ func resolveStatus(d Directives, method string, hasResponse bool, name string) (
 }
 
 // extractParams fills route.PathParams/QueryParams/HeaderParams and reports
-// whether the request struct has any json (body) fields, using the shared
-// ParseStructField so route discovery and type traversal cannot disagree.
-func extractParams(pkg *packages.Package, req *types.Named, route *ir.Route) (hasJSON bool, err error) {
+// whether the request struct has any json (body) fields and/or any
+// multipart/form (upload) fields, using the shared ParseStructField so
+// route discovery and type traversal cannot disagree. The hasUpload
+// return drives Route.Upload + BodyType wiring at the call site (ADR 0042).
+func extractParams(pkg *packages.Package, req *types.Named, route *ir.Route) (hasJSON, hasUpload bool, err error) {
 	st := req.Underlying().(*types.Struct)
 	ctx := StructContext{IsRequestType: true, QualifiedName: pkg.Types.Name() + "." + req.Obj().Name()}
 	for i := 0; i < st.NumFields(); i++ {
 		pf, e := ParseStructField(pkg, st.Field(i), reflect.StructTag(st.Tag(i)), ctx)
 		if e != nil {
-			return false, e
+			return false, false, e
 		}
 		if pf == nil {
 			continue // skipped: unexported or json:"-" (ADR 0018 D1/D2)
@@ -345,9 +374,11 @@ func extractParams(pkg *packages.Package, req *types.Named, route *ir.Route) (ha
 			route.QueryParams = append(route.QueryParams, toParam(pf))
 		case ir.FieldSourceHeader:
 			route.HeaderParams = append(route.HeaderParams, toParam(pf))
+		case ir.FieldSourceMultipart, ir.FieldSourceForm:
+			hasUpload = true
 		}
 	}
-	return hasJSON, nil
+	return hasJSON, hasUpload, nil
 }
 
 // toParam adapts a ParsedField to the ir.Param shape route discovery uses.

@@ -82,6 +82,25 @@ export function createHooks(client: Client) {
         },
       });
     },
+
+    /** Stores a new avatar image for the user. */
+    useUploadAvatar: (
+      opts?: HookMutationOptions<t.User, { params: { id: string }; body: t.UploadAvatarRequest }>,
+    ) => {
+      const queryClient = useQueryClient();
+      return useMutation<
+        t.User,
+        GoductError,
+        { params: { id: string }; body: t.UploadAvatarRequest }
+      >({
+        ...opts,
+        mutationFn: (vars) => client.users.uploadAvatar(vars.params, vars.body),
+        onSuccess: (data, vars, ctx) => {
+          queryClient.invalidateQueries({ queryKey: ["users"] });
+          opts?.onSuccess?.(data, vars, ctx);
+        },
+      });
+    },
   };
 }
 

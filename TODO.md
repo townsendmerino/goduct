@@ -36,17 +36,35 @@ Pattern: same shape as ADR 0040 closing ADR 0039's spec-trust gaps.
 
 ---
 
-## v0.6 — next big features (README roadmap)
+## v0.6.1 — file upload closure pass
 
-- **File upload helpers.** No ADR yet. Open design question: a new
-  request-side streaming primitive (multipart/form-data with
-  typed-field schema) or a thinner abstraction that just exposes
-  `multipart.Reader` to the handler. **Trigger:** start of v0.6.
+Three items deferred during v0.6 per
+[ADR 0042 §7](docs/decisions/0042-file-uploads.md).
+
+- **Multi-file uploads** (`[]*multipart.FileHeader`). The slice
+  form is the natural extension of v0.6's single-file shape — same
+  tag, same wire convention, the adapter just iterates
+  `MultipartForm.File["name"]` rather than indexing `[0]`.
+  **Trigger:** start of v0.6.1 closure pass.
+
+- **Configurable upload size limits** via goduct.json. v0.6 trusts
+  `ParseMultipartForm`'s 32 MB default; bigger uploads use raw
+  mode. A `goduct.json` `upload: { maxBytes: ... }` block would
+  let typed uploads grow without forcing the raw-mode escape.
+  **Trigger:** any user report that 32 MB is the wrong default.
+
+- **Per-field byte-limit validator** (`validate:"maxbytes=..."`).
+  Currently file size validation is server-side post-receive.
+  **Trigger:** same as above, OR a user requests it independently.
+
+## v0.7 — WebSocket bridge (next big feature)
 
 - **WebSocket bridge.** No ADR yet. Adds full-duplex on top of SSE
   patterns. Open: which Go WS library to depend on (goduct has
-  zero non-stdlib deps for the runtime today). **Trigger:** start
-  of v0.6, but after a "do we accept a WS dep?" decision.
+  zero non-stdlib deps for the runtime today; the candidates are
+  `gorilla/websocket`, `nhooyr.io/websocket`, `coder/websocket`,
+  or `golang.org/x/net/websocket`). **Trigger:** start of v0.7,
+  after a deliberate "do we accept a WS dep?" decision.
 
 ---
 

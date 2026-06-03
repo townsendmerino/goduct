@@ -326,3 +326,35 @@ func TestParseDirectives_Requestexample_Security(t *testing.T) {
 		}
 	})
 }
+
+// TestParseDirectives_Upload covers ADR 0042's `goduct:upload`
+// toggle directive: takes no args, single-shot, sets d.Upload=true.
+func TestParseDirectives_Upload(t *testing.T) {
+	t.Run("present sets Upload=true", func(t *testing.T) {
+		d, err := ParseDirectives("goduct:route POST /up\ngoduct:upload")
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if !d.Upload {
+			t.Errorf("Upload should be true")
+		}
+	})
+	t.Run("absent leaves Upload=false", func(t *testing.T) {
+		d, _ := ParseDirectives("goduct:route POST /up")
+		if d.Upload {
+			t.Errorf("Upload should be false when absent")
+		}
+	})
+	t.Run("takes no argument", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route POST /up\ngoduct:upload yes")
+		if err == nil || !strings.Contains(err.Error(), "no arguments") {
+			t.Errorf("expected no-args error, got %v", err)
+		}
+	})
+	t.Run("duplicate loud-fails", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route POST /up\ngoduct:upload\ngoduct:upload")
+		if err == nil || !strings.Contains(err.Error(), "duplicate goduct:upload") {
+			t.Errorf("expected duplicate error, got %v", err)
+		}
+	})
+}

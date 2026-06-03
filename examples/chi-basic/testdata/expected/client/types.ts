@@ -43,3 +43,8 @@ export interface UpdateUserRequest {
   name?: string;
   status?: UserStatus;
 }
+
+export interface UploadAvatarRequest {
+  file: File | Blob;
+  caption?: string;
+}

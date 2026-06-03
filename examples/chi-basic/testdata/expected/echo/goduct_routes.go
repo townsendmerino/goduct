@@ -20,6 +20,7 @@ func Register(r *echo.Echo) {
 	r.POST("/users", handleCreateUser)
 	r.PATCH("/users/:id", handleUpdateUser)
 	r.DELETE("/users/:id", handleDeleteUser)
+	r.POST("/users/:id/avatar", handleUploadAvatar)
 }
 
 func handleGetUser(c echo.Context) error {
@@ -112,5 +113,30 @@ func handleDeleteUser(c echo.Context) error {
 		return nil
 	}
 	c.Response().Writer.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func handleUploadAvatar(c echo.Context) error {
+	var req UploadAvatarRequest
+	if err := c.Request().ParseMultipartForm(32 << 20); err != nil {
+		goduct.WriteError(c.Response().Writer, goduct.BadRequest("invalid multipart form"))
+		return nil
+	}
+	if files := c.Request().MultipartForm.File["file"]; len(files) > 0 {
+		req.File = files[0]
+	} else {
+		goduct.WriteError(c.Response().Writer, goduct.BadRequest("file is required"))
+		return nil
+	}
+	if vs := c.Request().MultipartForm.Value["caption"]; len(vs) > 0 {
+		req.Caption = vs[0]
+	}
+	req.UserID = c.Param("id")
+	resp, err := UploadAvatar(c.Request().Context(), req)
+	if err != nil {
+		goduct.WriteError(c.Response().Writer, err)
+		return nil
+	}
+	goduct.WriteJSON(c.Response().Writer, http.StatusCreated, resp)
 	return nil
 }

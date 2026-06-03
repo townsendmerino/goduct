@@ -245,7 +245,7 @@ func GenerateFramework(api *ir.API, w io.Writer, frameworkName string) error {
 			}
 			continue
 		}
-		b.WriteString("\n" + wrapper(fw, rt) + "\n")
+		b.WriteString("\n" + wrapper(fw, rt, api) + "\n")
 	}
 
 	src := b.String()
@@ -264,12 +264,26 @@ func GenerateFramework(api *ir.API, w io.Writer, frameworkName string) error {
 func importBlock(api *ir.API, fw *framework) string {
 	needJSON, needStrconv := false, false
 	for _, rt := range api.Routes {
-		if rt.BodyType != nil && rt.BodyType.Kind == ir.KindNamed {
+		// JSON body decode is the only encoding/json consumer; upload
+		// routes have a BodyType but use multipart, not json.
+		if !rt.Upload && rt.BodyType != nil && rt.BodyType.Kind == ir.KindNamed {
 			needJSON = true
 		}
 		for _, q := range rt.QueryParams {
 			if q.Type.Kind != ir.KindBuiltin || q.Type.Builtin != "string" {
 				needStrconv = true
+			}
+		}
+		// ADR 0042: form text fields with non-string primitives need
+		// strconv too (uploadParseBlock emits strconv.Atoi / .ParseBool
+		// / .ParseFloat).
+		if rt.Upload && rt.BodyType != nil {
+			td := api.Types[rt.BodyType.Named]
+			for _, f := range gen.UploadFields(td) {
+				if f.Source == ir.FieldSourceForm &&
+					(f.Type.Kind != ir.KindBuiltin || f.Type.Builtin != "string") {
+					needStrconv = true
+				}
 			}
 		}
 	}
@@ -329,7 +343,7 @@ func rawRequestExpr(fw *framework) string {
 // Field-assignment order is load-bearing: the JSON body is decoded
 // BEFORE path params are applied, so a client cannot override a path
 // param via the body. Do not reorder.
-func wrapper(fw *framework, rt ir.Route) string {
+func wrapper(fw *framework, rt ir.Route, api *ir.API) string {
 	// ADR 0041: streaming routes take a different code path —
 	// no body decode (streaming is always GET), no JSON response
 	// write, delegate to goduct.SSEStream after setting headers.
@@ -346,7 +360,13 @@ func wrapper(fw *framework, rt ir.Route) string {
 	b.WriteString(" {\n")
 	b.WriteString("\tvar req " + reqType + "\n")
 
-	if rt.BodyType != nil && rt.BodyType.Kind == ir.KindNamed {
+	// ADR 0042: typed-upload routes replace the JSON body decode
+	// with multipart parsing + per-field assignment. The JSON branch
+	// below is mutually exclusive (the analyzer rejects json+multipart
+	// on the same struct).
+	if rt.Upload {
+		b.WriteString(uploadAssigns(fw, rt, api))
+	} else if rt.BodyType != nil && rt.BodyType.Kind == ir.KindNamed {
 		b.WriteString("\tif err := json.NewDecoder(" + fw.bodyExpr + ").Decode(&req); err != nil {\n")
 		b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr + ", goduct.BadRequest(\"invalid json body\"))\n")
 		b.WriteString("\t\t" + fw.earlyReturn + "\n\t}\n")
@@ -377,6 +397,113 @@ func wrapper(fw *framework, rt ir.Route) string {
 	b.WriteString("\tgoduct.WriteJSON(" + fw.writerExpr + ", " + statusConst(rt.SuccessStatus) + ", resp)\n")
 	b.WriteString(fw.finalReturn)
 	b.WriteString("}")
+	return b.String()
+}
+
+// uploadAssigns emits the ParseMultipartForm + per-field assignment
+// block for a typed-upload route (ADR 0042). multipart:"..." file
+// fields populate from <req>.MultipartForm.File; form:"..." text
+// fields from <req>.MultipartForm.Value with strconv parsing for
+// numeric / bool primitives (mirrors queryAssign).
+// 32 MiB matches http.Request.ParseMultipartForm's standard default
+// — anything larger spools to disk. Users with bigger uploads use
+// raw mode (ADR 0042 §4).
+func uploadAssigns(fw *framework, rt ir.Route, api *ir.API) string {
+	reqExpr := rawRequestExpr(fw)
+	var b strings.Builder
+	b.WriteString("\tif err := " + reqExpr + ".ParseMultipartForm(32 << 20); err != nil {\n")
+	b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr +
+		", goduct.BadRequest(\"invalid multipart form\"))\n")
+	b.WriteString("\t\t" + fw.earlyReturn + "\n\t}\n")
+
+	// Look up the request type's full field set to find multipart/form
+	// fields in source order. The Upload flag guarantees BodyType is
+	// the request type itself (ADR 0042 §3).
+	td := api.Types[rt.BodyType.Named]
+	for _, f := range gen.UploadFields(td) {
+		switch f.Source {
+		case ir.FieldSourceMultipart:
+			b.WriteString(uploadFileAssign(fw, f, reqExpr))
+		case ir.FieldSourceForm:
+			b.WriteString(uploadFormAssign(fw, f, reqExpr))
+		}
+	}
+	return b.String()
+}
+
+// uploadFileAssign emits the assignment for one *multipart.FileHeader
+// field. Required fields short-circuit to BadRequest when absent;
+// optional fields silently leave req.<Field> nil.
+func uploadFileAssign(fw *framework, f ir.Field, reqExpr string) string {
+	var b strings.Builder
+	wire := f.JSONName
+	b.WriteString("\tif files := " + reqExpr + ".MultipartForm.File[\"" + wire + "\"]; len(files) > 0 {\n")
+	b.WriteString("\t\treq." + f.GoName + " = files[0]\n")
+	b.WriteString("\t}")
+	if !f.Optional {
+		b.WriteString(" else {\n")
+		b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr +
+			", goduct.BadRequest(\"" + wire + " is required\"))\n")
+		b.WriteString("\t\t" + fw.earlyReturn + "\n\t}")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// uploadFormAssign emits the assignment for one form:"..." text
+// field. String is the direct case; numeric/bool parse with a
+// BadRequest on failure. Same set of supported primitives as
+// queryAssign — anything outside it is rejected by ParseStructField
+// (UPL2 category).
+func uploadFormAssign(fw *framework, f ir.Field, reqExpr string) string {
+	if f.Type.Kind != ir.KindBuiltin {
+		panic("goadapter: unsupported form param kind for " + f.JSONName)
+	}
+	wire, goName := f.JSONName, f.GoName
+	switch f.Type.Builtin {
+	case "string":
+		var b strings.Builder
+		b.WriteString("\tif vs := " + reqExpr + ".MultipartForm.Value[\"" + wire + "\"]; len(vs) > 0 {\n")
+		b.WriteString("\t\treq." + goName + " = vs[0]\n")
+		b.WriteString("\t}")
+		if !f.Optional {
+			b.WriteString(" else {\n")
+			b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr +
+				", goduct.BadRequest(\"" + wire + " is required\"))\n")
+			b.WriteString("\t\t" + fw.earlyReturn + "\n\t}")
+		}
+		b.WriteString("\n")
+		return b.String()
+	case "int", "int8", "int16", "int32", "int64",
+		"uint", "uint8", "uint16", "uint32", "uint64":
+		return uploadParseBlock(fw, goName, wire, reqExpr, "strconv.Atoi(vs[0])", "an integer", f.Optional)
+	case "bool":
+		return uploadParseBlock(fw, goName, wire, reqExpr, "strconv.ParseBool(vs[0])", "a boolean", f.Optional)
+	case "float32", "float64":
+		return uploadParseBlock(fw, goName, wire, reqExpr, "strconv.ParseFloat(vs[0], 64)", "a number", f.Optional)
+	}
+	panic("goadapter: unsupported form builtin " + f.Type.Builtin + " for " + wire)
+}
+
+// uploadParseBlock emits an int/bool/float strconv parse block for a
+// form text field. Pattern mirrors queryParseBlock.
+func uploadParseBlock(fw *framework, goName, wire, reqExpr, parse, want string, optional bool) string {
+	var b strings.Builder
+	b.WriteString("\tif vs := " + reqExpr + ".MultipartForm.Value[\"" + wire + "\"]; len(vs) > 0 {\n")
+	b.WriteString("\t\tn, err := " + parse + "\n")
+	b.WriteString("\t\tif err != nil {\n")
+	b.WriteString("\t\t\tgoduct.WriteError(" + fw.writerExpr +
+		", goduct.BadRequest(\"" + wire + " must be " + want + "\"))\n")
+	b.WriteString("\t\t\t" + fw.earlyReturn + "\n\t\t}\n")
+	b.WriteString("\t\treq." + goName + " = n\n")
+	b.WriteString("\t}")
+	if !optional {
+		b.WriteString(" else {\n")
+		b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr +
+			", goduct.BadRequest(\"" + wire + " is required\"))\n")
+		b.WriteString("\t\t" + fw.earlyReturn + "\n\t}")
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 

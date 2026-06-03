@@ -51,7 +51,9 @@ interface RequestOpts {
 
 async function request(opts: ClientOptions, r: RequestOpts): Promise<unknown> {
   const f = opts.fetch ?? fetch;
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const isForm = typeof FormData !== "undefined" && r.body instanceof FormData;
+  const headers: Record<string, string> = {};
+  if (!isForm) headers["Content-Type"] = "application/json";
   if (opts.headers) Object.assign(headers, await opts.headers());
 
   let url = opts.baseUrl + r.path;
@@ -64,10 +66,15 @@ async function request(opts: ClientOptions, r: RequestOpts): Promise<unknown> {
     if (qs) url += "?" + qs;
   }
 
+  let body: BodyInit | undefined;
+  if (r.body === undefined) body = undefined;
+  else if (isForm) body = r.body as FormData;
+  else body = JSON.stringify(r.body);
+
   const res = await f(url, {
     method: r.method,
     headers,
-    body: r.body === undefined ? undefined : JSON.stringify(r.body),
+    body,
   });
 
   if (res.status === 204) return undefined;
@@ -182,7 +189,7 @@ func Generate(api *ir.API, w io.Writer) error {
 	for _, tag := range tagOrder {
 		methods := make([]string, 0, len(byTag[tag]))
 		for _, r := range byTag[tag] {
-			methods = append(methods, renderMethod(r, api.CustomAdapters))
+			methods = append(methods, renderMethod(r, api))
 		}
 		tagBlocks = append(tagBlocks,
 			"    "+tag+": {\n"+strings.Join(methods, "\n\n")+"\n    },")
@@ -194,7 +201,8 @@ func Generate(api *ir.API, w io.Writer) error {
 	return err
 }
 
-func renderMethod(r ir.Route, adapters map[string]string) string {
+func renderMethod(r ir.Route, api *ir.API) string {
+	adapters := api.CustomAdapters
 	var b strings.Builder
 	if d := gen.JSDocFull(r.HandlerName, r.Doc); d != "" {
 		b.WriteString("      /** " + d + " */\n")
@@ -228,7 +236,28 @@ func renderMethod(r ir.Route, adapters map[string]string) string {
 	b.WriteString("      " + gen.MethodName(r.HandlerName, r.Tag) +
 		": async (" + signature(r, adapters) + "): " + ret + " => {\n")
 
-	if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
+	// ADR 0042: typed-upload routes build a FormData from the body
+	// shape (multipart file fields + form text fields) instead of
+	// calling zod parse + JSON.stringify. The shared `request` helper
+	// detects `body instanceof FormData` and switches Content-Type
+	// + serialization automatically.
+	if r.Upload && r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
+		b.WriteString("        const fd = new FormData();\n")
+		td := api.Types[r.BodyType.Named]
+		for _, f := range gen.UploadFields(td) {
+			ref := "body." + f.JSONName
+			line := "        fd.append(\"" + f.JSONName + "\", " + ref + ");\n"
+			if f.Source == ir.FieldSourceForm && f.Type.Kind == ir.KindBuiltin && f.Type.Builtin != "string" {
+				// Non-string form fields: stringify so FormData accepts them.
+				line = "        fd.append(\"" + f.JSONName + "\", String(" + ref + "));\n"
+			}
+			if f.Optional {
+				b.WriteString("        if (" + ref + " !== undefined) " + strings.TrimPrefix(strings.TrimSuffix(line, "\n"), "        ") + "\n")
+			} else {
+				b.WriteString(line)
+			}
+		}
+	} else if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
 		b.WriteString("        const parsed = " + schemasExpr(*r.BodyType) + ".parse(body);\n")
 	}
 	open := "        await request(opts, {\n"
@@ -245,7 +274,9 @@ func renderMethod(r ir.Route, adapters map[string]string) string {
 		}
 		b.WriteString("          query: { " + strings.Join(parts, ", ") + " },\n")
 	}
-	if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
+	if r.Upload && r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
+		b.WriteString("          body: fd,\n")
+	} else if r.BodyType != nil && r.BodyType.Kind == ir.KindNamed {
 		b.WriteString("          body: parsed,\n")
 	}
 	b.WriteString("        });\n")

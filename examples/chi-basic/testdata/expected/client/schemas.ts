@@ -48,3 +48,9 @@ export const UpdateUserRequest = z.object({
   status: UserStatus.optional(),
 });
 export type UpdateUserRequest = z.infer<typeof UpdateUserRequest>;
+
+export const UploadAvatarRequest = z.object({
+  file: z.any(),
+  caption: z.string().optional(),
+});
+export type UploadAvatarRequest = z.infer<typeof UploadAvatarRequest>;

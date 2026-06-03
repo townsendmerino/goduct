@@ -20,6 +20,7 @@ func Register(r *gin.Engine) {
 	r.POST("/users", handleCreateUser)
 	r.PATCH("/users/:id", handleUpdateUser)
 	r.DELETE("/users/:id", handleDeleteUser)
+	r.POST("/users/:id/avatar", handleUploadAvatar)
 }
 
 func handleGetUser(c *gin.Context) {
@@ -108,4 +109,28 @@ func handleDeleteUser(c *gin.Context) {
 		return
 	}
 	c.Writer.WriteHeader(http.StatusNoContent)
+}
+
+func handleUploadAvatar(c *gin.Context) {
+	var req UploadAvatarRequest
+	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		goduct.WriteError(c.Writer, goduct.BadRequest("invalid multipart form"))
+		return
+	}
+	if files := c.Request.MultipartForm.File["file"]; len(files) > 0 {
+		req.File = files[0]
+	} else {
+		goduct.WriteError(c.Writer, goduct.BadRequest("file is required"))
+		return
+	}
+	if vs := c.Request.MultipartForm.Value["caption"]; len(vs) > 0 {
+		req.Caption = vs[0]
+	}
+	req.UserID = c.Param("id")
+	resp, err := UploadAvatar(c.Request.Context(), req)
+	if err != nil {
+		goduct.WriteError(c.Writer, err)
+		return
+	}
+	goduct.WriteJSON(c.Writer, http.StatusCreated, resp)
 }

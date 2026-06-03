@@ -57,6 +57,13 @@ type Directives struct {
 	// detected when applied; see apply().
 	Security []string
 
+	// Upload is true iff `goduct:upload` was present (ADR 0042).
+	// Toggles the request body's wire-format hint for non-Go
+	// generators (TS client → FormData, OpenAPI → multipart/form-
+	// data). The Go side is untouched (raw handlers manage their
+	// own multipart parsing).
+	Upload bool
+
 	// Doc is the comment text with every goduct: line removed and
 	// surrounding whitespace trimmed. Interior blank lines are preserved.
 	Doc string
@@ -199,6 +206,12 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 			return fail("duplicate goduct:requestexample directive")
 		}
 		d.RequestExample = args
+	case "upload":
+		// Toggle directive: takes no argument.
+		if args != "" {
+			return fail("upload takes no arguments")
+		}
+		d.Upload = true
 	case "security":
 		v, err := singleArg(args, "security")
 		if err != nil {

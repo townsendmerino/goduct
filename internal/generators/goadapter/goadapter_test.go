@@ -308,3 +308,72 @@ func TestGenerateFramework_StreamingMode(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateFramework_TypedUpload covers ADR 0042 §4: a route
+// with Upload=true gets a wrapper that calls ParseMultipartForm,
+// populates the request struct from MultipartForm.File/.Value, then
+// calls the user's typed handler. All four frameworks share the
+// shape; only the writer + request expressions vary.
+func TestGenerateFramework_TypedUpload(t *testing.T) {
+	uploadAPI := &ir.API{
+		SourceDirs: map[string]string{"pkg": "/tmp/pkg"},
+		Routes: []ir.Route{{
+			HandlerName:   "Upload",
+			Method:        "POST",
+			Path:          "/things/:id/file",
+			Tag:           "things",
+			Mode:          ir.ModeIdiomatic,
+			Pos:           "/tmp/pkg/upload.go:1:1",
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.UploadReq"},
+			BodyType:      &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.UploadReq"},
+			ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.UploadResp"},
+			SuccessStatus: 201,
+			Upload:        true,
+			PathParams: []ir.Param{{
+				GoName: "ID", WireName: "id",
+				Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"},
+			}},
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.UploadReq": {
+				QualifiedName: "pkg.UploadReq", Name: "UploadReq", Kind: ir.TypeStruct,
+				Fields: []ir.Field{
+					{GoName: "ID", JSONName: "id", Source: ir.FieldSourcePath,
+						Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}},
+					{GoName: "File", JSONName: "file", Source: ir.FieldSourceMultipart, Optional: false,
+						Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "multipart.FileHeader"}},
+					{GoName: "Caption", JSONName: "caption", Source: ir.FieldSourceForm, Optional: true,
+						Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}},
+				},
+			},
+			"pkg.UploadResp": {QualifiedName: "pkg.UploadResp", Name: "UploadResp", Kind: ir.TypeStruct,
+				Fields: []ir.Field{{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}}},
+		},
+	}
+	for _, fw := range []string{"chi", "gin", "echo", "mux"} {
+		t.Run(fw, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := GenerateFramework(uploadAPI, &buf, fw); err != nil {
+				t.Fatalf("GenerateFramework(%s): %v", fw, err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, ".ParseMultipartForm(32 << 20)") {
+				t.Errorf("%s: missing ParseMultipartForm:\n%s", fw, out)
+			}
+			if !strings.Contains(out, `.MultipartForm.File["file"]`) {
+				t.Errorf("%s: missing MultipartForm.File access for required file:\n%s", fw, out)
+			}
+			if !strings.Contains(out, `goduct.BadRequest("file is required")`) {
+				t.Errorf("%s: missing required-file enforcement:\n%s", fw, out)
+			}
+			if !strings.Contains(out, `.MultipartForm.Value["caption"]`) {
+				t.Errorf("%s: missing MultipartForm.Value access for caption:\n%s", fw, out)
+			}
+			// goformat must succeed (validates output is real Go).
+			if _, err := format.Source(buf.Bytes()); err != nil {
+				t.Errorf("%s: generated output not valid Go: %v\n%s", fw, err, out)
+			}
+		})
+	}
+}

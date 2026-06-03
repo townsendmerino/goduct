@@ -114,7 +114,7 @@ func TestRenderMethod_NoDoc(t *testing.T) {
 		Path: "/users/:id", Doc: "",
 		PathParams: []ir.Param{{WireName: "id", Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}},
 	}
-	out := renderMethod(r, nil)
+	out := renderMethod(r, &ir.API{})
 	if strings.Contains(out, "/**") {
 		t.Errorf("no-doc route must not emit JSDoc, got:\n%s", out)
 	}

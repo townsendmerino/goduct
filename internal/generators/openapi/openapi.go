@@ -286,9 +286,22 @@ func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 	}
 
 	// Request body (when a body route). ADR 0040: optionally attach
-	// goduct:requestexample to the body's mediaType.
+	// goduct:requestexample to the body's mediaType. ADR 0042:
+	// upload routes flip Content-Type to multipart/form-data and use
+	// a synthesized object-schema describing the file + form fields
+	// (for typed uploads) or fall back to the JSON schema as a
+	// best-effort hint (for raw uploads where goduct can't introspect
+	// the parts).
 	if r.BodyType != nil {
-		mt := &mediaType{Schema: schemaForRef(api, *r.BodyType)}
+		var contentType string
+		var mt *mediaType
+		if r.Upload {
+			contentType = "multipart/form-data"
+			mt = &mediaType{Schema: multipartSchema(api, *r.BodyType)}
+		} else {
+			contentType = "application/json"
+			mt = &mediaType{Schema: schemaForRef(api, *r.BodyType)}
+		}
 		if r.RequestExample != "" {
 			var ex any
 			if err := json.Unmarshal([]byte(r.RequestExample), &ex); err != nil {
@@ -299,7 +312,7 @@ func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 		}
 		op.RequestBody = &requestBody{
 			Required: true,
-			Content:  map[string]*mediaType{"application/json": mt},
+			Content:  map[string]*mediaType{contentType: mt},
 		}
 	}
 
@@ -806,6 +819,45 @@ func argName(ref ir.TypeRef) string {
 		return "Map" + argName(*ref.Value)
 	}
 	panic("openapi: unsupported arg kind " + fmt.Sprint(ref.Kind) + " in generic instantiation name")
+}
+
+// multipartSchema synthesizes the requestBody schema for an upload
+// route (ADR 0042). For a typed upload (request type has
+// multipart:/form: tagged fields), it emits an inline object
+// schema: file parts as {type:string, format:binary}; text parts
+// via the regular builtin schema, with required[] populated from
+// the field's optionality. For raw uploads (no multipart tags on
+// the struct), it falls back to the regular schemaForRef so the
+// user-declared request type still surfaces something.
+func multipartSchema(api *ir.API, body ir.TypeRef) map[string]any {
+	if body.Kind != ir.KindNamed {
+		return schemaForRef(api, body)
+	}
+	td, ok := api.Types[body.Named]
+	if !ok {
+		return schemaForRef(api, body)
+	}
+	uploadFields := gen.UploadFields(td)
+	if len(uploadFields) == 0 {
+		return schemaForRef(api, body)
+	}
+	props := map[string]any{}
+	var required []string
+	for _, f := range uploadFields {
+		if f.Source == ir.FieldSourceMultipart {
+			props[f.JSONName] = map[string]any{"type": "string", "format": "binary"}
+		} else {
+			props[f.JSONName] = builtinSchema(api, f.Type.Builtin)
+		}
+		if !f.Optional {
+			required = append(required, f.JSONName)
+		}
+	}
+	out := map[string]any{"type": "object", "properties": props}
+	if len(required) > 0 {
+		out["required"] = required
+	}
+	return out
 }
 
 // short returns the unqualified TS-identifier portion of an IR

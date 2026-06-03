@@ -18,6 +18,7 @@ func Register(r *http.ServeMux) {
 	r.HandleFunc("POST /users", handleCreateUser)
 	r.HandleFunc("PATCH /users/{id}", handleUpdateUser)
 	r.HandleFunc("DELETE /users/{id}", handleDeleteUser)
+	r.HandleFunc("POST /users/{id}/avatar", handleUploadAvatar)
 }
 
 func handleGetUser(w http.ResponseWriter, r *http.Request) {
@@ -106,4 +107,28 @@ func handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
+	var req UploadAvatarRequest
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		goduct.WriteError(w, goduct.BadRequest("invalid multipart form"))
+		return
+	}
+	if files := r.MultipartForm.File["file"]; len(files) > 0 {
+		req.File = files[0]
+	} else {
+		goduct.WriteError(w, goduct.BadRequest("file is required"))
+		return
+	}
+	if vs := r.MultipartForm.Value["caption"]; len(vs) > 0 {
+		req.Caption = vs[0]
+	}
+	req.UserID = r.PathValue("id")
+	resp, err := UploadAvatar(r.Context(), req)
+	if err != nil {
+		goduct.WriteError(w, err)
+		return
+	}
+	goduct.WriteJSON(w, http.StatusCreated, resp)
 }

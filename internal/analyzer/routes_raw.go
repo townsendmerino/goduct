@@ -112,9 +112,19 @@ func discoverRawHandler(pkg *packages.Package, fn *ast.FuncDecl, dirs Directives
 	// Path/query/header param extraction is shared with idiomatic mode:
 	// raw handlers still declare path:/query:/header:/json: tags on the
 	// request struct so the TS client+zod know the wire shape.
-	hasJSON, err := extractParams(pkg, reqNamed, &route)
+	hasJSON, hasUpload, err := extractParams(pkg, reqNamed, &route)
 	if err != nil {
 		return ir.Route{}, err
+	}
+	// ADR 0042: raw-mode request structs typically only use path/
+	// query/header tags (the user's raw handler parses the body
+	// themselves), but if multipart/form tags are present that's
+	// not an error — the wire shape is just additionally documented.
+	// json:+multipart: co-occurrence stays a loud-fail in either mode.
+	if hasJSON && hasUpload {
+		return fail("request type %s mixes json: and multipart:/form: tags "+
+			"(a struct cannot be both a JSON body and a multipart form on the wire)",
+			reqNamed.Obj().Name())
 	}
 	bodyAllowed := route.Method != "GET" && route.Method != "HEAD" && route.Method != "DELETE"
 	if !bodyAllowed && hasJSON {
@@ -135,6 +145,11 @@ func discoverRawHandler(pkg *packages.Package, fn *ast.FuncDecl, dirs Directives
 		}
 		route.ResponseType = rRef
 	}
+
+	// ADR 0042: goduct:upload on a raw handler flips the wire-format
+	// hint without changing anything on the Go side. The raw handler
+	// owns its multipart parsing.
+	route.Upload = dirs.Upload
 
 	if err := checkPathParams(route); err != nil {
 		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)

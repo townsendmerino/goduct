@@ -60,10 +60,11 @@ func ParseStructField(pkg *packages.Package, field *types.Var, tag reflect.Struc
 			"field has conflicting tags (path/query/header/json are mutually exclusive)",
 			"use exactly one of path/query/header/json")
 	}
-	if !ctx.IsRequestType && (src == "path" || src == "query" || src == "header") {
+	if !ctx.IsRequestType && (src == "path" || src == "query" || src == "header" ||
+		src == "multipart" || src == "form") {
 		return nil, formatFieldErr(pkg, field, ctx, "E2",
 			"a "+src+" tag on a non-request type's field is not allowed",
-			"path/query/header tags are only valid on a route's request type")
+			src+" tags are only valid on a route's request type")
 	}
 
 	rules := parseValidate(tag)
@@ -106,6 +107,36 @@ func ParseStructField(pkg *packages.Package, field *types.Var, tag reflect.Struc
 		f.Optional = isPtr || tagHasOmitempty(tag) // ADR 0020
 		return &ParsedField{Field: f}, nil
 
+	case "multipart":
+		// ADR 0042: a multipart field must be *multipart.FileHeader
+		// (v0.6 single-file only; the []*multipart.FileHeader slice
+		// form is deferred to v0.6.1). The field carries no TypeRef
+		// the TS/zod/types generators can render — they treat it as
+		// `File | Blob` based on f.Source alone. JSONName carries the
+		// tag-declared wire name so the struct renderers use it.
+		if !isMultipartFileHeader(field.Type()) {
+			return nil, formatFieldErr(pkg, field, ctx, "UPL1",
+				"multipart field must be of type *multipart.FileHeader, got "+
+					types.TypeString(field.Type(), nil),
+				"declare the field as `*multipart.FileHeader` (v0.6 supports single-file only)")
+		}
+		f.Source, f.Optional = ir.FieldSourceMultipart, !hasRule(rules, "required")
+		f.JSONName = wire
+		f.Type = ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "multipart.FileHeader"}
+		return &ParsedField{Field: f, WireName: wire}, nil
+
+	case "form":
+		// Text field on a multipart form. Same type rule as query/header.
+		ref, isPtr, ok := paramTypeRef(field.Type(), true /* allow ptr */)
+		if !ok {
+			return nil, formatFieldErr(pkg, field, ctx, "UPL2",
+				"form field has unsupported type "+types.TypeString(field.Type(), nil),
+				"form fields must be primitives (string/int*/uint*/float*/bool)")
+		}
+		f.Type, f.Source, f.JSONName = ref, ir.FieldSourceForm, wire
+		f.Optional = isPtr || !hasRule(rules, "required")
+		return &ParsedField{Field: f, WireName: wire}, nil
+
 	default: // "none": untagged exported field — present in IR, off the wire
 		ref, _, te := fieldTypeRef(field.Type())
 		if te != nil {
@@ -119,11 +150,16 @@ func ParseStructField(pkg *packages.Package, field *types.Var, tag reflect.Struc
 // classifyTag determines the field's wire source. `json:"-"` does not count
 // as a json source (ADR 0018 D2/E1): `json:"-"` alone → skip; `json:"-"`
 // with a path/query/header tag → that source (the json:"-" is redundant).
+// ADR 0042: `multipart:"name"` and `form:"name"` join the wire-source set;
+// they are mutually exclusive with json on the same struct (enforced at
+// the route-discovery level, not here).
 func classifyTag(tag reflect.StructTag) (src, wire string, count int, jsonName string, jsonDash bool) {
 	pathV, hasPath := tag.Lookup("path")
 	queryV, hasQuery := tag.Lookup("query")
 	headerV, hasHeader := tag.Lookup("header")
 	jsonV, hasJSON := tag.Lookup("json")
+	multipartV, hasMultipart := tag.Lookup("multipart")
+	formV, hasForm := tag.Lookup("form")
 	if hasJSON {
 		jsonName = firstToken(jsonV)
 		jsonDash = jsonName == "-"
@@ -139,6 +175,12 @@ func classifyTag(tag reflect.StructTag) (src, wire string, count int, jsonName s
 	}
 	if hasJSON && !jsonDash {
 		count, src = count+1, "json"
+	}
+	if hasMultipart {
+		count, src, wire = count+1, "multipart", firstToken(multipartV)
+	}
+	if hasForm {
+		count, src, wire = count+1, "form", firstToken(formV)
 	}
 	if count == 0 {
 		src = "none"
@@ -180,6 +222,27 @@ func parseValidate(tag reflect.StructTag) []ir.ValidationRule {
 		}
 	}
 	return rules
+}
+
+// isMultipartFileHeader reports whether t is *mime/multipart.FileHeader
+// (ADR 0042). Structural check, not string-comparison: the field type
+// must be a pointer to a *types.Named whose object is FileHeader in
+// the mime/multipart package.
+func isMultipartFileHeader(t types.Type) bool {
+	ptr, ok := t.(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj.Name() != "FileHeader" {
+		return false
+	}
+	pkg := obj.Pkg()
+	return pkg != nil && pkg.Path() == "mime/multipart"
 }
 
 // hasRule reports whether a validate rule with the given name is present.

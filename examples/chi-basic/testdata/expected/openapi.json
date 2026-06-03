@@ -257,6 +257,69 @@
           }
         }
       }
+    },
+    "/users/{id}/avatar": {
+      "post": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Stores a new avatar image for the user.",
+        "operationId": "UploadAvatar",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "caption": {
+                    "type": "string"
+                  },
+                  "file": {
+                    "format": "binary",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoductError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -359,6 +422,10 @@
             "$ref": "#/components/schemas/UserStatus"
           }
         },
+        "type": "object"
+      },
+      "UploadAvatarRequest": {
+        "properties": {},
         "type": "object"
       },
       "User": {

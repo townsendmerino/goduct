@@ -126,6 +126,17 @@ type Route struct {
 	// see them as "no response body" and skip body emission.
 	StreamType *TypeRef
 
+	// Upload is true iff this route accepts multipart/form-data
+	// (ADR 0042). Set by the analyzer in two ways: a typed handler
+	// whose request struct has multipart:"..." tagged fields, or a
+	// raw handler declaring `goduct:upload`. The flag drives every
+	// non-Go generator (tsclient builds FormData, openapi emits
+	// multipart/form-data content type, postman uses formdata body
+	// mode). The Go adapter emits the multipart-parsing wrapper
+	// only for typed uploads — raw uploads keep ADR 0031's direct-
+	// register behavior.
+	Upload bool
+
 	// SuccessStatus is the HTTP status returned on a non-error result.
 	// Defaults to 200, or 201 for POST, or 204 when ResponseType is nil.
 	SuccessStatus int
@@ -332,11 +343,13 @@ type Field struct {
 type FieldSource int
 
 const (
-	FieldSourceJSON   FieldSource = iota // wire body (default for non-request types)
-	FieldSourcePath                      // URL path
-	FieldSourceQuery                     // URL query string
-	FieldSourceHeader                    // HTTP header
-	FieldSourceNone                      // untagged; not on the wire
+	FieldSourceJSON      FieldSource = iota // wire body (default for non-request types)
+	FieldSourcePath                         // URL path
+	FieldSourceQuery                        // URL query string
+	FieldSourceHeader                       // HTTP header
+	FieldSourceNone                         // untagged; not on the wire
+	FieldSourceMultipart                    // multipart/form-data file part (ADR 0042)
+	FieldSourceForm                         // multipart/form-data text part (ADR 0042)
 )
 
 // EnumValue is one constant of an enum-style type.

@@ -29,12 +29,29 @@ func WireFields(td ir.TypeDef) []ir.Field {
 // EmitTS reports whether td should produce a top-level TypeScript
 // declaration (ADR 0022 §9). A TypeStruct with no wire-visible fields is
 // omitted (it exists in the IR only to carry path/query/header params);
-// TypeEnum and TypeAlias always emit.
+// TypeEnum and TypeAlias always emit. Upload structs (multipart/form
+// fields) DO emit, since the TS client needs the request shape to build
+// FormData (ADR 0042).
 func EmitTS(td ir.TypeDef) bool {
 	if td.Kind == ir.TypeStruct {
-		return len(WireFields(td)) > 0
+		return len(WireFields(td)) > 0 || len(UploadFields(td)) > 0
 	}
 	return true
+}
+
+// UploadFields returns the subset of td.Fields with Source ==
+// FieldSourceMultipart or FieldSourceForm (ADR 0042), order preserved.
+// Used by openapi/postman/tsclient to render the multipart-form
+// surface; goadapter consumes the same set to populate the request
+// struct from r.MultipartForm in the generated wrapper.
+func UploadFields(td ir.TypeDef) []ir.Field {
+	var out []ir.Field
+	for _, f := range td.Fields {
+		if f.Source == ir.FieldSourceMultipart || f.Source == ir.FieldSourceForm {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // SourcePath returns the import path of the package containing api's
