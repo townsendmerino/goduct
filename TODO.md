@@ -11,12 +11,16 @@ finer-grained, ADR-anchored punch list.
 
 ---
 
-## v0.7.1 — WebSocket polish
+## v0.5.1 — closure pass on the v0.5 wire-shape bundle
 
-Five items deferred during v0.7 per
-[ADR 0044 §9](docs/decisions/0044-websocket-bridge.md).
+Seven items deferred during the v0.5 work: five WebSocket-side per
+[ADR 0044 §9](docs/decisions/0044-websocket-bridge.md), two
+SSE-side per [ADR 0041 §7](docs/decisions/0041-sse-streaming.md)
+(and reaffirmed in [ADR 0043 §1](docs/decisions/0043-v06-closure-pass.md)).
 
-- **Subprotocols** (Sec-WebSocket-Protocol). v0.7 always uses the
+WebSocket polish:
+
+- **Subprotocols** (Sec-WebSocket-Protocol). v0.5 always uses the
   default subprotocol. Adding a `goduct:wssubprotocol` directive
   is a small follow-up. **Trigger:** user reports needing a
   named subprotocol (mqtt, graphql-ws, etc.).
@@ -26,7 +30,7 @@ Five items deferred during v0.7 per
   future ADR. **Trigger:** user reports keepalive-related
   disconnections.
 
-- **Binary frames.** v0.7 messages are all JSON text frames via
+- **Binary frames.** v0.5 messages are all JSON text frames via
   wsjson. Binary support is a different IR shape (message type
   is `[]byte`, not a named struct). **Trigger:** user reports a
   protobuf-over-WS or audio-streaming use case.
@@ -41,28 +45,27 @@ Five items deferred during v0.7 per
   doesn't auto-retry. **Trigger:** user reports needing
   transparent reconnect on flaky networks.
 
----
-
-## Cross-cutting deferrals still open
+SSE polish:
 
 - **Named SSE events** (`event: foo\ndata: {...}\n\n`). Currently
   goduct emits only nameless `data:` blocks. Needs a discriminated-
   union representation in the IR that goduct doesn't currently
   model — OR a partial-answer convention (every event gets
   `event: <TypeName>` automatically) that would need its own
-  design ADR. Excluded from the v0.6.1 closure pass per
-  [ADR 0043 §1](docs/decisions/0043-v06-closure-pass.md).
-  **Trigger:** user reports that a downstream SSE consumer
-  requires named events, OR goduct grows discriminated-union
-  support in the IR.
+  design ADR. **Trigger:** user reports that a downstream SSE
+  consumer requires named events, OR goduct grows discriminated-
+  union support in the IR.
 
 - **Last-Event-ID / auto-reconnect** on the TS client. The current
   `streamSSE` helper exits cleanly on body close; it does not
   retry. Needs a new IR/runtime contract for "events carry IDs"
   plus stateful resumption that only the user's event source
-  knows how to do. Excluded from v0.6.1 for the same reason.
-  **Trigger:** user reports a real production usage where
-  intermittent disconnects need transparent recovery.
+  knows how to do. **Trigger:** user reports a real production
+  usage where intermittent disconnects need transparent recovery.
+
+---
+
+## Cross-cutting deferrals still open
 
 
 - **Per-framework adapter golden compilation in CI** — the
