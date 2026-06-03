@@ -1,0 +1,118 @@
+# TODO
+
+Deferred work with concrete triggers. Items here are spec-trust gaps
+(implemented or designed but not exercised by a golden) or named
+deferrals from accepted ADRs. Each entry says *what*, *where the
+deferral was made*, and *the trigger that should activate the work*.
+
+For the narrative phasing (which features in which release) see the
+**Roadmap** section of [README.md](README.md). This file is the
+finer-grained, ADR-anchored punch list.
+
+---
+
+## v0.5.1 — SSE closure pass (next)
+
+These are the three items deferred during v0.5 per [ADR 0041 §7](docs/decisions/0041-sse-streaming.md).
+Pattern: same shape as ADR 0040 closing ADR 0039's spec-trust gaps.
+
+- **chi-basic SSE demo** — add one streaming route + event type to
+  `examples/chi-basic/api/`, regenerate all goldens. Closes
+  ADR 0041's "unit-test-only coverage" note. **Trigger:** start of
+  v0.5.1 closure pass. Cascade: every chi-basic golden touched by a
+  new event type (types/zod/client/hooks-skip/openapi/postman-skip
+  + four framework adapter goldens).
+
+- **Named SSE events** (`event: foo\ndata: {...}\n\n`). Currently
+  goduct emits only nameless `data:` blocks. **Trigger:** user
+  reports that a downstream SSE consumer requires named events, OR
+  goduct grows discriminated-union support in the IR (the natural
+  shape for "per-event-name → per-event-type").
+
+- **Last-Event-ID / auto-reconnect** on the TS client. The current
+  `streamSSE` helper exits cleanly on body close; it does not
+  retry. **Trigger:** user reports a real production usage where
+  intermittent disconnects need transparent recovery.
+
+---
+
+## v0.6 — next big features (README roadmap)
+
+- **File upload helpers.** No ADR yet. Open design question: a new
+  request-side streaming primitive (multipart/form-data with
+  typed-field schema) or a thinner abstraction that just exposes
+  `multipart.Reader` to the handler. **Trigger:** start of v0.6.
+
+- **WebSocket bridge.** No ADR yet. Adds full-duplex on top of SSE
+  patterns. Open: which Go WS library to depend on (goduct has
+  zero non-stdlib deps for the runtime today). **Trigger:** start
+  of v0.6, but after a "do we accept a WS dep?" decision.
+
+---
+
+## Cross-cutting deferrals still open
+
+- **Per-framework adapter golden compilation in CI** — the
+  goadapter goldens for chi/gin/echo/mux are byte-tested but not
+  *compiled* (would require pulling in gin/echo/mux as dev deps).
+  A typo in the gin emission would pass byte tests and break only
+  at user build time. Deferred since v0.2 per
+  [ADR 0030 §4](docs/decisions/0030-framework-adapter-selection.md).
+  **Trigger:** any compile-failure bug report against a framework
+  adapter, OR a v0.x.y where adding gin/echo/mux as a nested test
+  module (under `testdata/`) becomes acceptable.
+
+- **Per-handler security scope arguments** (OAuth2-style
+  `read:users write:users`). v0.4.1 ships per-handler scheme
+  override but always emits empty scopes. Deferred per
+  [ADR 0039 §2](docs/decisions/0039-openapi-polish-trio.md) and
+  [ADR 0040 §1](docs/decisions/0040-v04-closure-pass.md).
+  **Trigger:** user reports needing OAuth2 with scoped operations.
+
+- **Plural / named request examples** —
+  `requestBody.examples` (multiple named examples) deferred per
+  [ADR 0040 consequences](docs/decisions/0040-v04-closure-pass.md).
+  Today `goduct:requestexample` ships only one example per
+  handler. **Trigger:** user asks for multiple examples per
+  request body.
+
+- **Multi-package input.** Today `goduct gen <pkg>` analyzes one
+  package; cross-package request/response types loud-fail. The IR
+  (`api.SourceDirs` is a map) is forward-compatible. Per
+  [ADR 0014](docs/decisions/0014-handler-signature-strictness.md)
+  and [ADR 0027](docs/decisions/0027-enrich-ir-for-go-side-codegen.md).
+  **Trigger:** any project with handlers spanning multiple
+  packages — but this implies real surgery in routes.go and
+  goadapter's package-name resolution.
+
+- **Type alias rendering polish.** A struct reachable only via
+  `type A B` alias emits as a duplicate interface rather than a TS
+  alias. Listed in README "Known polish". **Trigger:** any user
+  report that the duplicate-interface output causes confusion.
+
+---
+
+## Maybe / opportunistic
+
+These are speculative — not on a release path, not in
+ADRs as deferrals, just possibilities flagged in the README's
+"Maybe" bucket or surfaced in conversation.
+
+- **Swift / Kotlin / Python client generators.** Each is one new
+  `Generate(*ir.API, io.Writer) error` function consuming the
+  existing IR. No analyzer changes needed. **Trigger:** any
+  contributor wants to add one, OR goduct's user base widens past
+  Go+TS shops.
+
+- **`goduct doctor` diagnostic command.** Print the resolved
+  config, the analyzed routes, the framework target, and any
+  unhealthy state in one machine-readable + human-readable dump.
+  Useful for "why isn't my route showing up?" debugging.
+  **Trigger:** any time the support-question pattern matches this
+  shape twice.
+
+- **Streaming hooks for React Query.** Once `@tanstack/react-query`
+  (or a community plugin) settles on a subscription/iterator hook
+  pattern, the hooks generator can stop silently skipping
+  streaming routes. **Trigger:** RQ v6 ships a stable iterator
+  hook, OR a clear community-pattern winner emerges.
