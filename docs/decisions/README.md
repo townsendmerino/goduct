@@ -82,3 +82,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0036](0036-constraint-generics.md) | Constraint generics (v0.4) | Accepted |
 | [0037](0037-gin-echo-raw-handlerfunc.md) | gin/echo raw `http.HandlerFunc` via context-bridge wrappers (v0.4) | Accepted |
 | [0038](0038-project-config-file.md) | `goduct.json` project config file (v0.4) | Accepted |
+| [0039](0039-openapi-polish-trio.md) | OpenAPI polish trio: examples, security schemes, per-status responses (v0.4) | Accepted |
