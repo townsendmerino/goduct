@@ -108,21 +108,26 @@ func ParseStructField(pkg *packages.Package, field *types.Var, tag reflect.Struc
 		return &ParsedField{Field: f}, nil
 
 	case "multipart":
-		// ADR 0042: a multipart field must be *multipart.FileHeader
-		// (v0.6 single-file only; the []*multipart.FileHeader slice
-		// form is deferred to v0.6.1). The field carries no TypeRef
-		// the TS/zod/types generators can render — they treat it as
-		// `File | Blob` based on f.Source alone. JSONName carries the
-		// tag-declared wire name so the struct renderers use it.
-		if !isMultipartFileHeader(field.Type()) {
+		// ADR 0042 (single) + ADR 0043 (multi): a multipart field is
+		// either *multipart.FileHeader or []*multipart.FileHeader.
+		// The TypeRef encodes the difference via Kind so generators
+		// branch naturally (KindSlice → multi-file, KindBuiltin →
+		// single).
+		isFile, isMulti := multipartFileShape(field.Type())
+		if !isFile {
 			return nil, formatFieldErr(pkg, field, ctx, "UPL1",
-				"multipart field must be of type *multipart.FileHeader, got "+
+				"multipart field must be of type *multipart.FileHeader or []*multipart.FileHeader, got "+
 					types.TypeString(field.Type(), nil),
-				"declare the field as `*multipart.FileHeader` (v0.6 supports single-file only)")
+				"declare the field as `*multipart.FileHeader` (single) or `[]*multipart.FileHeader` (multi)")
 		}
 		f.Source, f.Optional = ir.FieldSourceMultipart, !hasRule(rules, "required")
 		f.JSONName = wire
-		f.Type = ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "multipart.FileHeader"}
+		single := ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "multipart.FileHeader"}
+		if isMulti {
+			f.Type = ir.TypeRef{Kind: ir.KindSlice, Element: &single}
+		} else {
+			f.Type = single
+		}
 		return &ParsedField{Field: f, WireName: wire}, nil
 
 	case "form":
@@ -224,11 +229,20 @@ func parseValidate(tag reflect.StructTag) []ir.ValidationRule {
 	return rules
 }
 
-// isMultipartFileHeader reports whether t is *mime/multipart.FileHeader
-// (ADR 0042). Structural check, not string-comparison: the field type
-// must be a pointer to a *types.Named whose object is FileHeader in
-// the mime/multipart package.
-func isMultipartFileHeader(t types.Type) bool {
+// multipartFileShape reports whether t is *mime/multipart.FileHeader
+// (single, ADR 0042) or []*mime/multipart.FileHeader (multi,
+// ADR 0043). Structural check, not string-comparison: the field type
+// (or its slice element) must be a pointer to a *types.Named whose
+// object is FileHeader in the mime/multipart package. Returns
+// (isFile, isMulti).
+func multipartFileShape(t types.Type) (isFile, isMulti bool) {
+	if slice, ok := t.(*types.Slice); ok {
+		return isPtrToMultipartFileHeader(slice.Elem()), true
+	}
+	return isPtrToMultipartFileHeader(t), false
+}
+
+func isPtrToMultipartFileHeader(t types.Type) bool {
 	ptr, ok := t.(*types.Pointer)
 	if !ok {
 		return false

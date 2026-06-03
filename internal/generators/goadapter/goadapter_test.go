@@ -377,3 +377,70 @@ func TestGenerateFramework_TypedUpload(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateFramework_MultiFileAndMaxBytes covers ADR 0043:
+// multi-file uploads ([]*multipart.FileHeader) assign the slice
+// directly; maxbytes=N emits a per-file size check (per-element
+// loop for slices, direct ref for single); api.Meta.UploadMaxBytes
+// overrides the 32 MiB ParseMultipartForm default.
+func TestGenerateFramework_MultiFileAndMaxBytes(t *testing.T) {
+	apiMulti := &ir.API{
+		SourceDirs: map[string]string{"pkg": "/tmp/pkg"},
+		Meta:       ir.Meta{UploadMaxBytes: 67108864},
+		Routes: []ir.Route{{
+			HandlerName:   "Upload",
+			Method:        "POST",
+			Path:          "/up",
+			Tag:           "u",
+			Mode:          ir.ModeIdiomatic,
+			Pos:           "/tmp/pkg/up.go:1:1",
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			BodyType:      &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Resp"},
+			SuccessStatus: 201,
+			Upload:        true,
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.Req": {
+				QualifiedName: "pkg.Req", Name: "Req", Kind: ir.TypeStruct,
+				Fields: []ir.Field{
+					{GoName: "Avatar", JSONName: "avatar", Source: ir.FieldSourceMultipart,
+						Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "multipart.FileHeader"},
+						Validation: []ir.ValidationRule{
+							{Name: "required"},
+							{Name: "maxbytes", Arg: "1024"},
+						}},
+					{GoName: "Thumbnails", JSONName: "thumbnails", Source: ir.FieldSourceMultipart, Optional: true,
+						Type: ir.TypeRef{Kind: ir.KindSlice,
+							Element: &ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "multipart.FileHeader"}}},
+				},
+			},
+			"pkg.Resp": {QualifiedName: "pkg.Resp", Name: "Resp", Kind: ir.TypeStruct,
+				Fields: []ir.Field{{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateFramework(apiMulti, &buf, "chi"); err != nil {
+		t.Fatalf("GenerateFramework: %v", err)
+	}
+	out := buf.String()
+	// UploadMaxBytes override: literal 67108864 in the ParseMultipartForm call.
+	if !strings.Contains(out, "ParseMultipartForm(67108864)") {
+		t.Errorf("ParseMultipartForm should use Meta.UploadMaxBytes (67108864):\n%s", out)
+	}
+	// Multi-file assigns the slice directly.
+	if !strings.Contains(out, "req.Thumbnails = files") {
+		t.Errorf("multi-file should assign the slice; got:\n%s", out)
+	}
+	// maxbytes single-file: direct Size check on the assigned *FileHeader.
+	if !strings.Contains(out, "req.Avatar.Size > 1024") {
+		t.Errorf("maxbytes on single file should emit a direct .Size check:\n%s", out)
+	}
+	if !strings.Contains(out, `"avatar exceeds 1024 byte limit"`) {
+		t.Errorf("maxbytes error should name the wire field + the limit:\n%s", out)
+	}
+	if _, err := format.Source(buf.Bytes()); err != nil {
+		t.Errorf("output not valid Go: %v\n%s", err, out)
+	}
+}

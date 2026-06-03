@@ -58,7 +58,12 @@ func renderSchema(td ir.TypeDef, adapters map[string]string) string {
 		for _, f := range gen.UploadFields(td) {
 			var expr string
 			if f.Source == ir.FieldSourceMultipart {
-				expr = "z.any()"
+				// ADR 0043: multi-file is z.array(z.any()).
+				if f.Type.Kind == ir.KindSlice {
+					expr = "z.array(z.any())"
+				} else {
+					expr = "z.any()"
+				}
 				if f.Optional {
 					expr += ".optional()"
 				}

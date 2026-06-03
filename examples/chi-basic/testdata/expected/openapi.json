@@ -287,6 +287,13 @@
                   "file": {
                     "format": "binary",
                     "type": "string"
+                  },
+                  "thumbnails": {
+                    "items": {
+                      "format": "binary",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "required": [
@@ -304,6 +311,47 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoductError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users/{id}/events": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Streams events for one user as they happen.",
+        "operationId": "WatchUserEvents",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream of UserEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEvent"
                 }
               }
             }
@@ -451,6 +499,26 @@
           "id",
           "name",
           "status"
+        ],
+        "type": "object"
+      },
+      "UserEvent": {
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "at",
+          "userId"
         ],
         "type": "object"
       },

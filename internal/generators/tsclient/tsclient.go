@@ -246,6 +246,18 @@ func renderMethod(r ir.Route, api *ir.API) string {
 		td := api.Types[r.BodyType.Named]
 		for _, f := range gen.UploadFields(td) {
 			ref := "body." + f.JSONName
+			// Multi-file (ADR 0043) appends one entry per element under
+			// the same field name — matches how browsers serialize
+			// <input type="file" multiple>.
+			if f.Source == ir.FieldSourceMultipart && f.Type.Kind == ir.KindSlice {
+				stmt := ref + ".forEach((f) => fd.append(\"" + f.JSONName + "\", f));"
+				if f.Optional {
+					b.WriteString("        if (" + ref + " !== undefined) " + stmt + "\n")
+				} else {
+					b.WriteString("        " + stmt + "\n")
+				}
+				continue
+			}
 			line := "        fd.append(\"" + f.JSONName + "\", " + ref + ");\n"
 			if f.Source == ir.FieldSourceForm && f.Type.Kind == ir.KindBuiltin && f.Type.Builtin != "string" {
 				// Non-string form fields: stringify so FormData accepts them.

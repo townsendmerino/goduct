@@ -157,3 +157,33 @@ func TestLoad_AutoDiscoverPresent(t *testing.T) {
 		t.Errorf("Load(\"\") with present file should yield cfg, got %+v", cfg)
 	}
 }
+
+// TestParse_UploadBlock covers ADR 0043 §3: the goduct.json
+// "upload" block surfaces with MaxBytes, with pointer-typed Upload
+// so absence stays distinguishable from {"upload":{}}.
+func TestParse_UploadBlock(t *testing.T) {
+	t.Run("present sets MaxBytes", func(t *testing.T) {
+		cfg, err := Parse([]byte(`{"upload":{"maxBytes":67108864}}`), "t.json")
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if cfg.Upload == nil || cfg.Upload.MaxBytes != 67108864 {
+			t.Errorf("Upload = %+v, want {MaxBytes:67108864}", cfg.Upload)
+		}
+	})
+	t.Run("absent leaves Upload nil", func(t *testing.T) {
+		cfg, _ := Parse([]byte(`{"pattern":"./api"}`), "t.json")
+		if cfg.Upload != nil {
+			t.Errorf("Upload should be nil when absent, got %+v", cfg.Upload)
+		}
+	})
+	t.Run("unknown nested key loud-fails", func(t *testing.T) {
+		// stdlib encoding/json is case-insensitive for field
+		// matching, so "maxbytes" silently maps to MaxBytes —
+		// only a genuine spelling typo trips DisallowUnknownFields.
+		_, err := Parse([]byte(`{"upload":{"maxbites":1}}`), "t.json")
+		if err == nil || !strings.Contains(err.Error(), "maxbites") {
+			t.Errorf("expected unknown-field error naming `maxbites`, got %v", err)
+		}
+	})
+}

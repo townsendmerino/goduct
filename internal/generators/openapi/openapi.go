@@ -844,9 +844,16 @@ func multipartSchema(api *ir.API, body ir.TypeRef) map[string]any {
 	props := map[string]any{}
 	var required []string
 	for _, f := range uploadFields {
-		if f.Source == ir.FieldSourceMultipart {
+		switch {
+		case f.Source == ir.FieldSourceMultipart && f.Type.Kind == ir.KindSlice:
+			// ADR 0043 multi-file: array of binary strings.
+			props[f.JSONName] = map[string]any{
+				"type":  "array",
+				"items": map[string]any{"type": "string", "format": "binary"},
+			}
+		case f.Source == ir.FieldSourceMultipart:
 			props[f.JSONName] = map[string]any{"type": "string", "format": "binary"}
-		} else {
+		default:
 			props[f.JSONName] = builtinSchema(api, f.Type.Builtin)
 		}
 		if !f.Optional {

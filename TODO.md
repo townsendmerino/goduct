@@ -11,52 +11,6 @@ finer-grained, ADR-anchored punch list.
 
 ---
 
-## v0.5.1 — SSE closure pass (next)
-
-These are the three items deferred during v0.5 per [ADR 0041 §7](docs/decisions/0041-sse-streaming.md).
-Pattern: same shape as ADR 0040 closing ADR 0039's spec-trust gaps.
-
-- **chi-basic SSE demo** — add one streaming route + event type to
-  `examples/chi-basic/api/`, regenerate all goldens. Closes
-  ADR 0041's "unit-test-only coverage" note. **Trigger:** start of
-  v0.5.1 closure pass. Cascade: every chi-basic golden touched by a
-  new event type (types/zod/client/hooks-skip/openapi/postman-skip
-  + four framework adapter goldens).
-
-- **Named SSE events** (`event: foo\ndata: {...}\n\n`). Currently
-  goduct emits only nameless `data:` blocks. **Trigger:** user
-  reports that a downstream SSE consumer requires named events, OR
-  goduct grows discriminated-union support in the IR (the natural
-  shape for "per-event-name → per-event-type").
-
-- **Last-Event-ID / auto-reconnect** on the TS client. The current
-  `streamSSE` helper exits cleanly on body close; it does not
-  retry. **Trigger:** user reports a real production usage where
-  intermittent disconnects need transparent recovery.
-
----
-
-## v0.6.1 — file upload closure pass
-
-Three items deferred during v0.6 per
-[ADR 0042 §7](docs/decisions/0042-file-uploads.md).
-
-- **Multi-file uploads** (`[]*multipart.FileHeader`). The slice
-  form is the natural extension of v0.6's single-file shape — same
-  tag, same wire convention, the adapter just iterates
-  `MultipartForm.File["name"]` rather than indexing `[0]`.
-  **Trigger:** start of v0.6.1 closure pass.
-
-- **Configurable upload size limits** via goduct.json. v0.6 trusts
-  `ParseMultipartForm`'s 32 MB default; bigger uploads use raw
-  mode. A `goduct.json` `upload: { maxBytes: ... }` block would
-  let typed uploads grow without forcing the raw-mode escape.
-  **Trigger:** any user report that 32 MB is the wrong default.
-
-- **Per-field byte-limit validator** (`validate:"maxbytes=..."`).
-  Currently file size validation is server-side post-receive.
-  **Trigger:** same as above, OR a user requests it independently.
-
 ## v0.7 — WebSocket bridge (next big feature)
 
 - **WebSocket bridge.** No ADR yet. Adds full-duplex on top of SSE
@@ -69,6 +23,26 @@ Three items deferred during v0.6 per
 ---
 
 ## Cross-cutting deferrals still open
+
+- **Named SSE events** (`event: foo\ndata: {...}\n\n`). Currently
+  goduct emits only nameless `data:` blocks. Needs a discriminated-
+  union representation in the IR that goduct doesn't currently
+  model — OR a partial-answer convention (every event gets
+  `event: <TypeName>` automatically) that would need its own
+  design ADR. Excluded from the v0.6.1 closure pass per
+  [ADR 0043 §1](docs/decisions/0043-v06-closure-pass.md).
+  **Trigger:** user reports that a downstream SSE consumer
+  requires named events, OR goduct grows discriminated-union
+  support in the IR.
+
+- **Last-Event-ID / auto-reconnect** on the TS client. The current
+  `streamSSE` helper exits cleanly on body close; it does not
+  retry. Needs a new IR/runtime contract for "events carry IDs"
+  plus stateful resumption that only the user's event source
+  knows how to do. Excluded from v0.6.1 for the same reason.
+  **Trigger:** user reports a real production usage where
+  intermittent disconnects need transparent recovery.
+
 
 - **Per-framework adapter golden compilation in CI** — the
   goadapter goldens for chi/gin/echo/mux are byte-tested but not

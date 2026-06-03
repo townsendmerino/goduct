@@ -60,6 +60,13 @@ type Meta struct {
 	// (ADR 0039). Each map is one requirement entry, mapping a
 	// scheme name to the (typically empty) scopes list.
 	SecurityRequirements []map[string][]string
+
+	// UploadMaxBytes is the cap passed to http.Request.ParseMultipartForm
+	// in the generated typed-upload wrapper (ADR 0043). Zero means
+	// "use the v0.6 default" of 32 << 20 (32 MiB). Sourced from
+	// goduct.json's upload.maxBytes block; baked into the generated
+	// adapter at codegen time, not read at runtime.
+	UploadMaxBytes int64
 }
 
 // ErrorResponse is one `goduct:errorresponse <status> <Type>`

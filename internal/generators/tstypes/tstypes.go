@@ -79,12 +79,17 @@ func renderType(td ir.TypeDef, adapters map[string]string) string {
 				opt = "?"
 			}
 			// Multipart file fields render as `File | Blob`
-			// (the stand-in `multipart.FileHeader` builtin on the
-			// TypeRef would otherwise panic tsType, which only
-			// knows wire-translatable builtins).
+			// (single, ADR 0042) or `(File | Blob)[]` (multi-file,
+			// ADR 0043). The stand-in `multipart.FileHeader` builtin
+			// on the TypeRef would otherwise panic tsType, which only
+			// knows wire-translatable builtins.
 			var ts string
 			if f.Source == ir.FieldSourceMultipart {
-				ts = "File | Blob"
+				if f.Type.Kind == ir.KindSlice {
+					ts = "(File | Blob)[]"
+				} else {
+					ts = "File | Blob"
+				}
 			} else {
 				ts = tsType(f.Type, adapters)
 			}

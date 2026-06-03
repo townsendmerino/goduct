@@ -34,12 +34,17 @@ var chiBasicWant = []struct {
 	{"CreateUser", "POST", "/users", "users", 201, 0, 0, 0, chiBasicPkg + ".CreateUserRequest", chiBasicPkg + ".User"},
 	{"UpdateUser", "PATCH", "/users/:id", "users", 200, 1, 0, 0, chiBasicPkg + ".UpdateUserRequest", chiBasicPkg + ".User"},
 	{"DeleteUser", "DELETE", "/users/:id", "users", 204, 1, 0, 0, "", ""},
-	// ADR 0042: typed upload. UploadAvatarRequest has path:id +
-	// multipart:file + form:caption. Path/query/header counts cover
-	// only path/query/header — multipart/form fields live on the
-	// BodyType (the request struct itself).
+	// ADR 0042 + 0043: typed upload. UploadAvatarRequest has path:id
+	// + multipart:file + multipart:thumbnails ([]) + form:caption.
+	// Path/query/header counts cover only path/query/header —
+	// multipart/form fields live on the BodyType.
 	{"UploadAvatar", "POST", "/users/:id/avatar", "users", 201, 1, 0, 0,
 		chiBasicPkg + ".UploadAvatarRequest", chiBasicPkg + ".User"},
+	// ADR 0041 + 0043: SSE streaming. ResponseType is nil for
+	// streaming routes (StreamType holds the per-event TypeRef);
+	// the chiBasicWant table doesn't model StreamType so the resp
+	// slot stays empty here. SuccessStatus defaults to 200.
+	{"WatchUserEvents", "GET", "/users/:id/events", "users", 200, 1, 0, 0, "", ""},
 }
 
 func TestDiscoverRoutes_ChiBasic(t *testing.T) {

@@ -16,6 +16,7 @@ package api
 import (
 	"context"
 	"mime/multipart"
+	"time"
 
 	goduct "github.com/townsendmerino/goduct/runtime"
 )
@@ -105,6 +106,14 @@ type CreateUserRequest struct {
 	ReferralCode string `json:"referralCode,omitempty" validate:"omitempty,len=8"`
 }
 
+// UserEvent is the per-event payload streamed by WatchUserEvents
+// (ADR 0041 / 0043: SSE demo on the chi-basic golden).
+type UserEvent struct {
+	UserID string    `json:"userId"`
+	Action string    `json:"action"`
+	At     time.Time `json:"at"`
+}
+
 // CreateUser creates a new user.
 //
 // goduct:route          POST /users
@@ -148,12 +157,13 @@ func DeleteUser(ctx context.Context, req DeleteUserRequest) error {
 	return nil
 }
 
-// ---- POST /users/:id/avatar (multipart upload, ADR 0042) ----
+// ---- POST /users/:id/avatar (multipart upload, ADR 0042 + 0043) ----
 
 type UploadAvatarRequest struct {
-	UserID  string                `path:"id"             validate:"required"`
-	File    *multipart.FileHeader `multipart:"file"      validate:"required"`
-	Caption string                `form:"caption"`
+	UserID     string                  `path:"id"              validate:"required"`
+	File       *multipart.FileHeader   `multipart:"file"       validate:"required,maxbytes=1048576"`
+	Thumbnails []*multipart.FileHeader `multipart:"thumbnails"`
+	Caption    string                  `form:"caption"`
 }
 
 // UploadAvatar stores a new avatar image for the user.
@@ -162,5 +172,26 @@ type UploadAvatarRequest struct {
 // goduct:tag   users
 func UploadAvatar(ctx context.Context, req UploadAvatarRequest) (*User, error) {
 	_ = req.File
+	_ = req.Thumbnails
 	return &User{ID: req.UserID, Email: "u@example.com", Name: "Example", Status: UserStatusActive}, nil
+}
+
+// ---- GET /users/:id/events (SSE, ADR 0041 + 0043) ----
+
+type WatchUserEventsRequest struct {
+	ID string `path:"id" validate:"required"`
+}
+
+// WatchUserEvents streams events for one user as they happen.
+//
+// goduct:route GET /users/:id/events
+// goduct:tag   users
+func WatchUserEvents(ctx context.Context, req WatchUserEventsRequest) (<-chan UserEvent, error) {
+	_ = req.ID
+	out := make(chan UserEvent)
+	go func() {
+		defer close(out)
+		<-ctx.Done()
+	}()
+	return out, nil
 }

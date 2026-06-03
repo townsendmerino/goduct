@@ -10,11 +10,11 @@ func TestAnalyze_ChiBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Analyze: %v", err)
 	}
-	if len(api.Routes) != 6 {
-		t.Errorf("got %d routes, want 6", len(api.Routes))
+	if len(api.Routes) != 7 {
+		t.Errorf("got %d routes, want 7", len(api.Routes))
 	}
-	if len(api.Types) != 11 {
-		t.Errorf("got %d types, want 11: %v", len(api.Types), keysOf(api.Types))
+	if len(api.Types) != 13 {
+		t.Errorf("got %d types, want 13: %v", len(api.Types), keysOf(api.Types))
 	}
 	// Integration spot-checks only — the route/type contents are already
 	// exhaustively tested in routes_test.go / types_test.go.

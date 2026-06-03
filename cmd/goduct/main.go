@@ -273,6 +273,9 @@ func metaFromConfig(cfg *cliconfig.Config) ir.Meta {
 		m.Security = cfg.Security.Schemes
 		m.SecurityRequirements = cfg.Security.Requirements
 	}
+	if cfg.Upload != nil {
+		m.UploadMaxBytes = cfg.Upload.MaxBytes
+	}
 	return m
 }
 

@@ -39,6 +39,13 @@ export interface CreateUserRequest {
   referralCode?: string;
 }
 
+/** The per-event payload streamed by WatchUserEvents (ADR 0041 / 0043: SSE demo on the chi-basic golden). */
+export interface UserEvent {
+  userId: string;
+  action: string;
+  at: string;
+}
+
 export interface UpdateUserRequest {
   name?: string;
   status?: UserStatus;
@@ -46,5 +53,6 @@ export interface UpdateUserRequest {
 
 export interface UploadAvatarRequest {
   file: File | Blob;
+  thumbnails?: (File | Blob)[];
   caption?: string;
 }

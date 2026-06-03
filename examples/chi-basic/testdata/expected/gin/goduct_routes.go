@@ -21,6 +21,7 @@ func Register(r *gin.Engine) {
 	r.PATCH("/users/:id", handleUpdateUser)
 	r.DELETE("/users/:id", handleDeleteUser)
 	r.POST("/users/:id/avatar", handleUploadAvatar)
+	r.GET("/users/:id/events", handleWatchUserEvents)
 }
 
 func handleGetUser(c *gin.Context) {
@@ -123,6 +124,13 @@ func handleUploadAvatar(c *gin.Context) {
 		goduct.WriteError(c.Writer, goduct.BadRequest("file is required"))
 		return
 	}
+	if req.File != nil && req.File.Size > 1048576 {
+		goduct.WriteError(c.Writer, goduct.BadRequest("file exceeds 1048576 byte limit"))
+		return
+	}
+	if files := c.Request.MultipartForm.File["thumbnails"]; len(files) > 0 {
+		req.Thumbnails = files
+	}
 	if vs := c.Request.MultipartForm.Value["caption"]; len(vs) > 0 {
 		req.Caption = vs[0]
 	}
@@ -133,4 +141,18 @@ func handleUploadAvatar(c *gin.Context) {
 		return
 	}
 	goduct.WriteJSON(c.Writer, http.StatusCreated, resp)
+}
+
+func handleWatchUserEvents(c *gin.Context) {
+	var req WatchUserEventsRequest
+	req.ID = c.Param("id")
+	ch, err := WatchUserEvents(c.Request.Context(), req)
+	if err != nil {
+		goduct.WriteError(c.Writer, err)
+		return
+	}
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.WriteHeader(http.StatusOK)
+	goduct.SSEStream(c.Request.Context(), c.Writer, ch)
 }

@@ -36,6 +36,15 @@ type Config struct {
 	Adapters   map[string]string `json:"adapters,omitempty"`
 	OpenAPI    *OpenAPI          `json:"openapi,omitempty"`
 	Security   *Security         `json:"security,omitempty"`
+	Upload     *Upload           `json:"upload,omitempty"`
+}
+
+// Upload is the goduct.json "upload" block (ADR 0043). MaxBytes
+// is the cap passed to http.Request.ParseMultipartForm in the
+// generated typed-upload wrapper. Default (when this block is
+// absent or MaxBytes is zero) is 32 MiB.
+type Upload struct {
+	MaxBytes int64 `json:"maxBytes,omitempty"`
 }
 
 // Security mirrors the goduct.json "security" block (ADR 0039 §2).

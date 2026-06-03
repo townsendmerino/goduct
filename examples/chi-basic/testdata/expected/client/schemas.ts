@@ -43,6 +43,13 @@ export const CreateUserRequest = z.object({
 });
 export type CreateUserRequest = z.infer<typeof CreateUserRequest>;
 
+export const UserEvent = z.object({
+  userId: z.string(),
+  action: z.string(),
+  at: z.string().datetime({ offset: true }),
+});
+export type UserEvent = z.infer<typeof UserEvent>;
+
 export const UpdateUserRequest = z.object({
   name: z.string().optional(),
   status: UserStatus.optional(),
@@ -51,6 +58,7 @@ export type UpdateUserRequest = z.infer<typeof UpdateUserRequest>;
 
 export const UploadAvatarRequest = z.object({
   file: z.any(),
+  thumbnails: z.array(z.any()).optional(),
   caption: z.string().optional(),
 });
 export type UploadAvatarRequest = z.infer<typeof UploadAvatarRequest>;

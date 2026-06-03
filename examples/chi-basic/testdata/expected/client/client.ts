@@ -77,6 +77,54 @@ async function request(opts: ClientOptions, r: RequestOpts): Promise<unknown> {
   return data;
 }
 
+
+async function* streamSSE<E>(opts: ClientOptions, r: RequestOpts): AsyncIterable<E> {
+  const f = opts.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (opts.headers) Object.assign(headers, await opts.headers());
+
+  let url = opts.baseUrl + r.path;
+  if (r.query) {
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(r.query)) {
+      if (v !== undefined) usp.set(k, String(v));
+    }
+    const qs = usp.toString();
+    if (qs) url += "?" + qs;
+  }
+
+  const res = await f(url, { method: r.method, headers });
+  if (!res.ok || !res.body) {
+    const text = res.body ? await res.text() : "";
+    const err = text ? (JSON.parse(text) as { code?: string; message?: string; details?: unknown }) : undefined;
+    throw new GoductError(
+      res.status,
+      err?.code ?? "unknown",
+      err?.message ?? res.statusText,
+      err?.details,
+    );
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      for (const line of block.split("\n")) {
+        if (line.startsWith("data: ")) {
+          yield JSON.parse(line.slice(6)) as E;
+        }
+      }
+    }
+  }
+}
+
 export function createClient(opts: ClientOptions) {
   return {
     users: {
@@ -134,6 +182,7 @@ export function createClient(opts: ClientOptions) {
       uploadAvatar: async (params: { id: string }, body: t.UploadAvatarRequest): Promise<t.User> => {
         const fd = new FormData();
         fd.append("file", body.file);
+        if (body.thumbnails !== undefined) body.thumbnails.forEach((f) => fd.append("thumbnails", f));
         if (body.caption !== undefined) fd.append("caption", body.caption);
         const data = await request(opts, {
           method: "POST",
@@ -142,6 +191,13 @@ export function createClient(opts: ClientOptions) {
         });
         return schemas.User.parse(data);
       },
+
+      /** Streams events for one user as they happen. */
+      watchUserEvents: (params: { id: string }): AsyncIterable<t.UserEvent> =>
+        streamSSE<t.UserEvent>(opts, {
+          method: "GET",
+          path: `/users/${encodeURIComponent(params.id)}/events`,
+        }),
     },
   };
 }

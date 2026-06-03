@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"go/format"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/townsendmerino/goduct/internal/gen"
@@ -401,17 +402,20 @@ func wrapper(fw *framework, rt ir.Route, api *ir.API) string {
 }
 
 // uploadAssigns emits the ParseMultipartForm + per-field assignment
-// block for a typed-upload route (ADR 0042). multipart:"..." file
-// fields populate from <req>.MultipartForm.File; form:"..." text
-// fields from <req>.MultipartForm.Value with strconv parsing for
-// numeric / bool primitives (mirrors queryAssign).
-// 32 MiB matches http.Request.ParseMultipartForm's standard default
-// — anything larger spools to disk. Users with bigger uploads use
-// raw mode (ADR 0042 §4).
+// block for a typed-upload route (ADR 0042 / 0043). The
+// ParseMultipartForm cap is api.Meta.UploadMaxBytes when set
+// (ADR 0043 §3), else the v0.6 default of 32 MiB. multipart:"..."
+// file fields populate from <req>.MultipartForm.File; form:"..."
+// text fields from <req>.MultipartForm.Value with strconv parsing
+// for numeric / bool primitives (mirrors queryAssign).
 func uploadAssigns(fw *framework, rt ir.Route, api *ir.API) string {
 	reqExpr := rawRequestExpr(fw)
+	maxBytes := "32 << 20"
+	if api.Meta.UploadMaxBytes > 0 {
+		maxBytes = strconv.FormatInt(api.Meta.UploadMaxBytes, 10)
+	}
 	var b strings.Builder
-	b.WriteString("\tif err := " + reqExpr + ".ParseMultipartForm(32 << 20); err != nil {\n")
+	b.WriteString("\tif err := " + reqExpr + ".ParseMultipartForm(" + maxBytes + "); err != nil {\n")
 	b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr +
 		", goduct.BadRequest(\"invalid multipart form\"))\n")
 	b.WriteString("\t\t" + fw.earlyReturn + "\n\t}\n")
@@ -431,14 +435,22 @@ func uploadAssigns(fw *framework, rt ir.Route, api *ir.API) string {
 	return b.String()
 }
 
-// uploadFileAssign emits the assignment for one *multipart.FileHeader
-// field. Required fields short-circuit to BadRequest when absent;
-// optional fields silently leave req.<Field> nil.
+// uploadFileAssign emits the assignment for one multipart file
+// field — either a single *multipart.FileHeader (ADR 0042) or a
+// []*multipart.FileHeader multi-file slice (ADR 0043). Single-file
+// assigns files[0]; multi-file assigns the slice. Required fields
+// short-circuit to BadRequest when absent. The maxbytes validator
+// (ADR 0043 §4) emits a per-file size check after the assign.
 func uploadFileAssign(fw *framework, f ir.Field, reqExpr string) string {
 	var b strings.Builder
 	wire := f.JSONName
+	multi := f.Type.Kind == ir.KindSlice
 	b.WriteString("\tif files := " + reqExpr + ".MultipartForm.File[\"" + wire + "\"]; len(files) > 0 {\n")
-	b.WriteString("\t\treq." + f.GoName + " = files[0]\n")
+	if multi {
+		b.WriteString("\t\treq." + f.GoName + " = files\n")
+	} else {
+		b.WriteString("\t\treq." + f.GoName + " = files[0]\n")
+	}
 	b.WriteString("\t}")
 	if !f.Optional {
 		b.WriteString(" else {\n")
@@ -447,6 +459,27 @@ func uploadFileAssign(fw *framework, f ir.Field, reqExpr string) string {
 		b.WriteString("\t\t" + fw.earlyReturn + "\n\t}")
 	}
 	b.WriteString("\n")
+	// ADR 0043 §4: maxbytes=N per-file enforcement. For multi-file
+	// fields the check loops every uploaded file; for single-file
+	// the assigned req.<F> is checked directly.
+	for _, rule := range f.Validation {
+		if rule.Name != "maxbytes" {
+			continue
+		}
+		n := rule.Arg
+		if multi {
+			b.WriteString("\tfor _, fh := range req." + f.GoName + " {\n")
+			b.WriteString("\t\tif fh.Size > " + n + " {\n")
+			b.WriteString("\t\t\tgoduct.WriteError(" + fw.writerExpr +
+				", goduct.BadRequest(\"" + wire + " exceeds " + n + " byte limit\"))\n")
+			b.WriteString("\t\t\t" + fw.earlyReturn + "\n\t\t}\n\t}\n")
+		} else {
+			b.WriteString("\tif req." + f.GoName + " != nil && req." + f.GoName + ".Size > " + n + " {\n")
+			b.WriteString("\t\tgoduct.WriteError(" + fw.writerExpr +
+				", goduct.BadRequest(\"" + wire + " exceeds " + n + " byte limit\"))\n")
+			b.WriteString("\t\t" + fw.earlyReturn + "\n\t}\n")
+		}
+	}
 	return b.String()
 }
 
