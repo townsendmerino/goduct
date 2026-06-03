@@ -148,4 +148,86 @@ func TestEndToEnd_ChiBasic(t *testing.T) {
 			t.Errorf("no-generator stderr missing the usage hint:\n%s", se.String())
 		}
 	})
+
+	// ADR 0038: goduct.json drives a config-only invocation. Pattern,
+	// out, generators, and openapi metadata all come from the JSON;
+	// the CLI only passes --config and --dir (the latter so the
+	// analyzer resolves the pattern relative to the repo root).
+	t.Run("goduct.json drives a config-only invocation", func(t *testing.T) {
+		// The prior --all subtest leaves goduct_routes.go beside the
+		// chi-basic source; the analyzer would refuse to load the
+		// package because chi isn't a module dep. Remove it before
+		// re-analyzing; the outer t.Cleanup's os.Remove tolerates
+		// the resulting ENOENT.
+		_ = os.Remove(adapter)
+
+		cfgDir := filepath.Join(tmp, "cfgrun")
+		outConfig := filepath.Join(cfgDir, "out")
+		if err := os.MkdirAll(outConfig, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cfgJSON := `{
+			"pattern":    "./examples/chi-basic/api",
+			"out":        "` + outConfig + `",
+			"generators": ["types", "openapi"],
+			"openapi":    {"title": "ConfigDriven", "version": "9.9.9"}
+		}`
+		cfgPath := filepath.Join(cfgDir, "goduct.json")
+		if err := os.WriteFile(cfgPath, []byte(cfgJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var so, se bytes.Buffer
+		c := exec.Command(bin, "gen", "--config", cfgPath, "--dir", root)
+		c.Stdout, c.Stderr = &so, &se
+		if err := c.Run(); err != nil {
+			t.Fatalf("config-driven run failed: %v\nstderr:\n%s", err, se.String())
+		}
+		// types.ts should match the chi-basic golden byte-for-byte
+		// (config didn't change typegen behavior).
+		gotTypes, err := os.ReadFile(filepath.Join(outConfig, "types.ts"))
+		if err != nil {
+			t.Fatalf("read types.ts: %v", err)
+		}
+		wantTypes, err := os.ReadFile(filepath.Join(root,
+			"examples/chi-basic/testdata/expected/client/types.ts"))
+		if err != nil {
+			t.Fatalf("read golden types.ts: %v", err)
+		}
+		if !bytes.Equal(gotTypes, wantTypes) {
+			t.Errorf("config-driven types.ts != golden")
+		}
+		// openapi.json should reflect the config's title + version.
+		gotOpenAPI, err := os.ReadFile(filepath.Join(outConfig, "openapi.json"))
+		if err != nil {
+			t.Fatalf("read openapi.json: %v", err)
+		}
+		if !bytes.Contains(gotOpenAPI, []byte(`"title": "ConfigDriven"`)) {
+			t.Errorf("openapi.json missing config title; head:\n%s", head(gotOpenAPI, 10))
+		}
+		if !bytes.Contains(gotOpenAPI, []byte(`"version": "9.9.9"`)) {
+			t.Errorf("openapi.json missing config version; head:\n%s", head(gotOpenAPI, 10))
+		}
+	})
+
+	// ADR 0038: a typo'd key loud-fails (DisallowUnknownFields).
+	// Pattern must come first per the README convention; --config and
+	// --dir follow.
+	t.Run("goduct.json unknown key exits 1", func(t *testing.T) {
+		cfgPath := filepath.Join(tmp, "bad.json")
+		if err := os.WriteFile(cfgPath, []byte(`{"frameworks":"chi"}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var se bytes.Buffer
+		c := exec.Command(bin, "gen", "./examples/chi-basic/api",
+			"--config", cfgPath, "--dir", root,
+			"--out", filepath.Join(tmp, "ignored"), "--types")
+		c.Dir, c.Stderr = root, &se
+		_ = c.Run()
+		if code := procExit(t, c); code != 1 {
+			t.Fatalf("unknown-key exit = %d, want 1\nstderr:\n%s", code, se.String())
+		}
+		if !strings.Contains(se.String(), "frameworks") {
+			t.Errorf("unknown-key stderr should name the offending field:\n%s", se.String())
+		}
+	})
 }

@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/townsendmerino/goduct/internal/analyzer"
+	"github.com/townsendmerino/goduct/internal/cliconfig"
 	"github.com/townsendmerino/goduct/internal/generators/goadapter"
 	"github.com/townsendmerino/goduct/internal/generators/hooks"
 	"github.com/townsendmerino/goduct/internal/generators/openapi"
@@ -71,32 +72,99 @@ func runGen(args []string) int {
 		sel[s.name] = fs.Bool(s.name, false, "generate "+s.out)
 	}
 	var (
-		all       = fs.Bool("all", false, "generate every generator")
-		out       = fs.String("out", "", "output directory for the TypeScript generators")
-		dir       = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
-		tags      = fs.String("tags", "", "comma-separated build tags")
-		tests     = fs.Bool("tests", false, "include _test.go files when loading")
-		watch     = fs.Bool("watch", false, "re-run generators on source-file change (Ctrl-C to stop)")
-		framework = fs.String("framework", "chi", "go-adapter framework: chi|gin|echo|mux")
-		adapters  = &adapterFlag{}
+		all        = fs.Bool("all", false, "generate every generator")
+		out        = fs.String("out", "", "output directory for the TypeScript generators")
+		dir        = fs.String("dir", "", "working directory for resolving the pattern (default: cwd)")
+		tags       = fs.String("tags", "", "comma-separated build tags")
+		tests      = fs.Bool("tests", false, "include _test.go files when loading")
+		watch      = fs.Bool("watch", false, "re-run generators on source-file change (Ctrl-C to stop)")
+		framework  = fs.String("framework", "chi", "go-adapter framework: chi|gin|echo|mux")
+		configPath = fs.String("config", "", "path to goduct.json (default: ./goduct.json if present)")
+		adapters   = &adapterFlag{}
 	)
 	fs.Var(adapters, "adapter",
 		"custom type adapter (repeatable): <qname>=<string|number|boolean|unknown>")
 
 	// README puts the package pattern first, before any flags; the
 	// stdlib flag parser stops at the first non-flag token, so pull the
-	// leading positional out by hand before parsing the rest.
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		fmt.Fprintln(os.Stderr, "goduct: missing package pattern (e.g. ./api)")
-		usage()
-		return 2
+	// leading positional out by hand before parsing the rest. The
+	// pattern can also come from goduct.json (ADR 0038), so a missing
+	// CLI pattern is not fatal here — it's checked again after config.
+	var pattern string
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		pattern = args[0]
+		args = args[1:]
 	}
-	pattern := args[0]
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return 2 // flag already printed the error + usage
 	}
 	if fs.NArg() > 0 {
 		fmt.Fprintf(os.Stderr, "goduct: unexpected argument %q (pattern must come first)\n", fs.Arg(0))
+		return 2
+	}
+
+	// Load goduct.json (ADR 0038). Empty --config auto-discovers
+	// ./goduct.json; absent is fine, parse errors are not.
+	cfg, err := cliconfig.Load(*configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+
+	// Precedence overlay: CLI flag wins; otherwise config value;
+	// otherwise built-in default. fs.Visit enumerates flags actually
+	// seen on the command line, so anything else is "may overlay".
+	visited := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { visited[f.Name] = true })
+	if cfg != nil {
+		if pattern == "" && cfg.Pattern != nil {
+			pattern = *cfg.Pattern
+		}
+		if !visited["out"] && cfg.Out != nil {
+			*out = *cfg.Out
+		}
+		if !visited["dir"] && cfg.Dir != nil {
+			*dir = *cfg.Dir
+		}
+		if !visited["tags"] && len(cfg.Tags) > 0 {
+			*tags = strings.Join(cfg.Tags, ",")
+		}
+		if !visited["tests"] && cfg.Tests != nil {
+			*tests = *cfg.Tests
+		}
+		if !visited["watch"] && cfg.Watch != nil {
+			*watch = *cfg.Watch
+		}
+		if !visited["framework"] && cfg.Framework != nil {
+			*framework = *cfg.Framework
+		}
+		// --all and per-generator flags compose with OR / union;
+		// config can add to the CLI selection but never subtract.
+		if cfg.All != nil && *cfg.All {
+			*all = true
+		}
+		for _, name := range cfg.Generators {
+			ptr, ok := sel[name]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "goduct: goduct.json generators[]: unknown generator %q\n", name)
+				return 2
+			}
+			*ptr = true
+		}
+		// Adapters: config first, CLI overrides on key collision.
+		merged := map[string]string{}
+		for k, v := range cfg.Adapters {
+			merged[k] = v
+		}
+		for k, v := range adapters.Map() {
+			merged[k] = v
+		}
+		adapters.pairs = merged
+	}
+
+	if pattern == "" {
+		fmt.Fprintln(os.Stderr, "goduct: missing package pattern (e.g. ./api)")
+		usage()
 		return 2
 	}
 
@@ -150,6 +218,7 @@ func runGen(args []string) int {
 		chosen:   chosen,
 		needOut:  needOut,
 		adapters: adapters.Map(),
+		meta:     metaFromConfig(cfg),
 	}
 
 	// First run uses the loud-failure contract: any analyze/generate/IO
@@ -182,6 +251,23 @@ type runRequest struct {
 	chosen   []genSpec
 	needOut  bool
 	adapters map[string]string // ADR 0032: qname -> wire shape
+	meta     ir.Meta           // ADR 0038: stamped onto api.Meta after Analyze
+}
+
+// metaFromConfig translates the goduct.json "openapi" block into
+// the ir.Meta the openapi generator reads (ADR 0038 §5). Returns
+// the zero value when cfg is nil or has no openapi block — the
+// generator then falls back to its built-in defaults.
+func metaFromConfig(cfg *cliconfig.Config) ir.Meta {
+	if cfg == nil || cfg.OpenAPI == nil {
+		return ir.Meta{}
+	}
+	return ir.Meta{
+		OpenAPITitle:       cfg.OpenAPI.Title,
+		OpenAPIVersion:     cfg.OpenAPI.Version,
+		OpenAPIDescription: cfg.OpenAPI.Description,
+		OpenAPIServers:     cfg.OpenAPI.Servers,
+	}
 }
 
 // generateOnce runs analyze + render-to-memory + write for one regen.
@@ -199,6 +285,7 @@ func generateOnce(req runRequest, quiet bool) (*ir.API, error) {
 	if err != nil {
 		return nil, fmt.Errorf("goduct: analyze: %w", err)
 	}
+	api.Meta = req.meta // ADR 0038: openapi metadata flows via api.Meta.
 
 	// Render everything to memory first: a generator failure (e.g. an
 	// ADR 0022 §5 panic surfaced as an error) must abort before any
@@ -326,6 +413,10 @@ flags:
                     {string,number,boolean,unknown}. Built-ins (ADR 0017)
                     win over user adapters. Per ADR 0032. Example:
                       --adapter github.com/shopspring/decimal.Decimal=string
+  --config <path>   path to goduct.json project config. When omitted,
+                    ./goduct.json is loaded if present. CLI flags
+                    override config; config overrides built-in defaults.
+                    Per ADR 0038.
 
 exit codes: 0 ok | 1 analyze/generate/IO error | 2 usage error
 `)

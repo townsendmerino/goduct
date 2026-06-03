@@ -29,17 +29,31 @@ import (
 	"github.com/townsendmerino/goduct/internal/ir"
 )
 
-// Generate writes openapi.json for api to w (ADR 0034 §1). Returns
-// w's first error or nil.
+// Generate writes openapi.json for api to w (ADR 0034 §1). Reads
+// project metadata from api.Meta when present, falling back to the
+// pre-config defaults otherwise (ADR 0038 §5). Returns w's first
+// error or nil.
 func Generate(api *ir.API, w io.Writer) error {
+	title := api.Meta.OpenAPITitle
+	if title == "" {
+		title = gen.PackageName(api)
+	}
+	version := api.Meta.OpenAPIVersion
+	if version == "" {
+		version = "0.0.0"
+	}
 	doc := document{
 		OpenAPI: "3.1.0",
 		Info: info{
-			Title:   gen.PackageName(api),
-			Version: "0.0.0",
+			Title:       title,
+			Version:     version,
+			Description: api.Meta.OpenAPIDescription,
 		},
 		Paths:      buildPaths(api),
 		Components: components{Schemas: buildSchemas(api)},
+	}
+	for _, url := range api.Meta.OpenAPIServers {
+		doc.Servers = append(doc.Servers, server{URL: url})
 	}
 
 	var compact bytes.Buffer
@@ -63,13 +77,19 @@ func Generate(api *ir.API, w io.Writer) error {
 type document struct {
 	OpenAPI    string               `json:"openapi"`
 	Info       info                 `json:"info"`
+	Servers    []server             `json:"servers,omitempty"`
 	Paths      map[string]*pathItem `json:"paths"`
 	Components components           `json:"components"`
 }
 
 type info struct {
-	Title   string `json:"title"`
-	Version string `json:"version"`
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+}
+
+type server struct {
+	URL string `json:"url"`
 }
 
 // pathItem's fields are declared in OpenAPI's canonical HTTP-method

@@ -31,6 +31,24 @@ type API struct {
 	// types (ADR 0017) take precedence; an adapter declared on a
 	// built-in qname is silently ignored.
 	CustomAdapters map[string]string
+
+	// Meta carries project-level metadata loaded from goduct.json
+	// (ADR 0038). The analyzer does not populate Meta — the CLI sets
+	// it after Analyze returns; generators that care (currently
+	// openapi) read fields with empty-as-default semantics. Zero
+	// value means "no config supplied; use built-in defaults".
+	Meta Meta
+}
+
+// Meta is the project-config-derived metadata bag (ADR 0038). One
+// flat struct; new fields are additive per ADR 0027. Empty-string /
+// nil-slice fields are the sentinel for "no override"; a generator
+// reading an empty value falls back to its own default.
+type Meta struct {
+	OpenAPITitle       string
+	OpenAPIVersion     string
+	OpenAPIDescription string
+	OpenAPIServers     []string
 }
 
 // Route is one HTTP endpoint.

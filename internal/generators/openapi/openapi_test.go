@@ -237,3 +237,83 @@ func TestGenericInstantiation(t *testing.T) {
 		t.Errorf("Page_User.items should $ref User:\n%s", out)
 	}
 }
+
+// TestGenerate_MetaOverrides covers ADR 0038 §5: when api.Meta is
+// populated, the generator surfaces those values in info{} and the
+// document-level `servers` array. Pre-config defaults still apply
+// for the empty-string fields.
+func TestGenerate_MetaOverrides(t *testing.T) {
+	root := repoRoot(t)
+	api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
+		analyzer.LoadOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	api.Meta = ir.Meta{
+		OpenAPITitle:       "Custom Title",
+		OpenAPIVersion:     "1.2.3",
+		OpenAPIDescription: "A test description.",
+		OpenAPIServers:     []string{"https://api.example.com", "https://staging.example.com"},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"title": "Custom Title"`) {
+		t.Errorf("missing title override:\n%s", out)
+	}
+	if !strings.Contains(out, `"version": "1.2.3"`) {
+		t.Errorf("missing version override:\n%s", out)
+	}
+	if !strings.Contains(out, `"description": "A test description."`) {
+		t.Errorf("missing description:\n%s", out)
+	}
+	if !strings.Contains(out, `"url": "https://api.example.com"`) ||
+		!strings.Contains(out, `"url": "https://staging.example.com"`) {
+		t.Errorf("missing servers[].url entries:\n%s", out)
+	}
+}
+
+// TestGenerate_MetaPartial_DefaultsRetained: empty fields in Meta
+// fall back to built-in defaults (title=package, version="0.0.0").
+// info.description and document.servers stay absent when their Meta
+// fields are empty so existing consumers see no shape change.
+// Parses the output as JSON so route-level "description" fields
+// don't confuse the assertion.
+func TestGenerate_MetaPartial_DefaultsRetained(t *testing.T) {
+	root := repoRoot(t)
+	api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
+		analyzer.LoadOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	api.Meta = ir.Meta{OpenAPIVersion: "9.9.9"} // version only
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	var got struct {
+		Info struct {
+			Title       string `json:"title"`
+			Version     string `json:"version"`
+			Description string `json:"description"`
+		} `json:"info"`
+		Servers []any `json:"servers"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Info.Title != "api" {
+		t.Errorf("info.title = %q, want \"api\" (package-name default)", got.Info.Title)
+	}
+	if got.Info.Version != "9.9.9" {
+		t.Errorf("info.version = %q, want \"9.9.9\"", got.Info.Version)
+	}
+	if got.Info.Description != "" {
+		t.Errorf("info.description should be absent when empty, got %q", got.Info.Description)
+	}
+	if got.Servers != nil {
+		t.Errorf("document.servers should be absent when empty, got %v", got.Servers)
+	}
+}
