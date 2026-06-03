@@ -200,6 +200,12 @@ func (o orderedProps) MarshalJSON() ([]byte, error) {
 func buildPaths(api *ir.API) (map[string]*pathItem, error) {
 	out := map[string]*pathItem{}
 	for _, r := range api.Routes {
+		// ADR 0044: OpenAPI 3.1 doesn't model WebSockets natively
+		// (AsyncAPI does, but emitting that is out of scope for v0.7).
+		// WS routes are omitted from the spec entirely.
+		if r.WebSocket != nil {
+			continue
+		}
 		p := pathConvert(r.Path)
 		item := out[p]
 		if item == nil {

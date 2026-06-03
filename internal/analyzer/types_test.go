@@ -51,7 +51,8 @@ func TestDiscoverTypes_ChiBasic(t *testing.T) {
 	want := []string{"User", "Profile", "UserStatus", "ListUsersResponse",
 		"CreateUserRequest", "UpdateUserRequest", "GetUserRequest",
 		"DeleteUserRequest", "ListUsersRequest", "ValidationError",
-		"UploadAvatarRequest", "WatchUserEventsRequest", "UserEvent"}
+		"UploadAvatarRequest", "WatchUserEventsRequest", "UserEvent",
+		"EchoRequest", "EchoEvent", "EchoMessage"}
 	if len(got) != len(want) {
 		t.Fatalf("got %d types, want %d: %v", len(got), len(want), keysOf(got))
 	}

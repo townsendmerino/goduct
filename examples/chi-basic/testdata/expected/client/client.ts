@@ -125,6 +125,69 @@ async function* streamSSE<E>(opts: ClientOptions, r: RequestOpts): AsyncIterable
   }
 }
 
+
+export class WSConnection<S, C> {
+  private ws: WebSocket;
+  private queue: S[] = [];
+  private waiters: ((v: IteratorResult<S>) => void)[] = [];
+  private closed = false;
+
+  constructor(url: string) {
+    this.ws = new WebSocket(url);
+    this.ws.onmessage = (ev) => {
+      const data = JSON.parse(typeof ev.data === "string" ? ev.data : "") as S;
+      const w = this.waiters.shift();
+      if (w) w({ value: data, done: false });
+      else this.queue.push(data);
+    };
+    this.ws.onclose = () => {
+      this.closed = true;
+      for (const w of this.waiters) w({ value: undefined as never, done: true });
+      this.waiters = [];
+    };
+  }
+
+  send(msg: C): void {
+    this.ws.send(JSON.stringify(msg));
+  }
+
+  async *messages(): AsyncIterable<S> {
+    while (true) {
+      if (this.queue.length > 0) {
+        yield this.queue.shift()!;
+        continue;
+      }
+      if (this.closed) return;
+      const next = await new Promise<IteratorResult<S>>((resolve) => {
+        this.waiters.push(resolve);
+      });
+      if (next.done) return;
+      yield next.value;
+    }
+  }
+
+  close(code?: number, reason?: string): void {
+    this.ws.close(code, reason);
+  }
+}
+
+function connectWS<S, C>(opts: ClientOptions, r: { path: string; query?: Record<string, string | number | boolean | undefined> }): WSConnection<S, C> {
+  let url = opts.baseUrl + r.path;
+  if (r.query) {
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(r.query)) {
+      if (v !== undefined) usp.set(k, String(v));
+    }
+    const qs = usp.toString();
+    if (qs) url += "?" + qs;
+  }
+  // http(s) → ws(s) for the WebSocket scheme. Relative baseUrls (no
+  // scheme) inherit the page's scheme via window.location at runtime;
+  // we just leave them alone here.
+  url = url.replace(/^http(s?):/, "ws$1:");
+  return new WSConnection<S, C>(url);
+}
+
 export function createClient(opts: ClientOptions) {
   return {
     users: {
@@ -197,6 +260,12 @@ export function createClient(opts: ClientOptions) {
         streamSSE<t.UserEvent>(opts, {
           method: "GET",
           path: `/users/${encodeURIComponent(params.id)}/events`,
+        }),
+
+      /** Accepts a WebSocket connection and echoes each received EchoMessage back as an EchoEvent. */
+      echo: (params: { id: string }): WSConnection<t.EchoEvent, t.EchoMessage> =>
+        connectWS<t.EchoEvent, t.EchoMessage>(opts, {
+          path: `/users/${encodeURIComponent(params.id)}/echo`,
         }),
     },
   };

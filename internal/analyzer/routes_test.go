@@ -45,6 +45,10 @@ var chiBasicWant = []struct {
 	// the chiBasicWant table doesn't model StreamType so the resp
 	// slot stays empty here. SuccessStatus defaults to 200.
 	{"WatchUserEvents", "GET", "/users/:id/events", "users", 200, 1, 0, 0, "", ""},
+	// ADR 0044: WebSocket. ResponseType + StreamType both nil;
+	// Route.WebSocket holds the Send/Recv types (not modeled in
+	// chiBasicWant). SuccessStatus defaults to 200.
+	{"Echo", "GET", "/users/:id/echo", "users", 200, 1, 0, 0, "", ""},
 }
 
 func TestDiscoverRoutes_ChiBasic(t *testing.T) {

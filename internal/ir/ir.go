@@ -86,6 +86,16 @@ type SecurityRequirement struct {
 	Schemes []string
 }
 
+// WebSocketTypes captures the two message-type ends of a WebSocket
+// route (ADR 0044). Both are always KindNamed pointing at
+// same-package named structs — Send is the server → client message
+// type (what conn.Send takes on the Go side); Recv is the client →
+// server message type (what conn.Recv returns).
+type WebSocketTypes struct {
+	Send *TypeRef
+	Recv *TypeRef
+}
+
 // Route is one HTTP endpoint.
 type Route struct {
 	// HandlerName is the Go function's identifier (e.g. "GetUser").
@@ -124,6 +134,15 @@ type Route struct {
 	// handler returns no body (status 204) or is a streaming route
 	// (StreamType is non-nil instead).
 	ResponseType *TypeRef
+
+	// WebSocket is non-nil iff this is a WebSocket route (ADR 0044) —
+	// the handler signature is
+	// func(ctx, T, *goduct.WSConn[S, C]) error and WebSocket carries
+	// the Send/Recv message types (both KindNamed, same-package).
+	// ResponseType / BodyType / StreamType all stay nil for WS routes;
+	// generators that don't yet handle WS (openapi, postman, hooks)
+	// see them as no-body routes and skip emission.
+	WebSocket *WebSocketTypes
 
 	// StreamType is non-nil iff this is an SSE route (ADR 0041) —
 	// the handler signature is func(ctx, T) (<-chan E, error) and

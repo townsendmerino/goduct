@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 
 	goduct "github.com/townsendmerino/goduct/runtime"
@@ -22,6 +23,7 @@ func Register(r *gin.Engine) {
 	r.DELETE("/users/:id", handleDeleteUser)
 	r.POST("/users/:id/avatar", handleUploadAvatar)
 	r.GET("/users/:id/events", handleWatchUserEvents)
+	r.GET("/users/:id/echo", handleEcho)
 }
 
 func handleGetUser(c *gin.Context) {
@@ -155,4 +157,16 @@ func handleWatchUserEvents(c *gin.Context) {
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.WriteHeader(http.StatusOK)
 	goduct.SSEStream(c.Request.Context(), c.Writer, ch)
+}
+
+func handleEcho(c *gin.Context) {
+	var req EchoRequest
+	req.ID = c.Param("id")
+	c, err := websocket.Accept(c.Writer, c.Request, nil)
+	if err != nil {
+		goduct.WriteError(c.Writer, goduct.BadRequest("websocket accept failed"))
+		return
+	}
+	defer c.CloseNow()
+	_ = Echo(c.Request.Context(), req, goduct.NewWSConn[EchoEvent, EchoMessage](c))
 }

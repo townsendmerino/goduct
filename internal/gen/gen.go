@@ -62,10 +62,17 @@ func UploadFields(td ir.TypeDef) []ir.Field {
 func SourcePath(api *ir.API) string {
 	paths := map[string]struct{}{}
 	for _, r := range api.Routes {
-		// StreamType (ADR 0041) joins ResponseType + BodyType as a
-		// source for the package path — without it, an API with only
-		// streaming routes would yield an empty SourcePath.
-		for _, ref := range []*ir.TypeRef{r.ResponseType, r.BodyType, r.StreamType} {
+		// StreamType (ADR 0041) and WebSocket.Send (ADR 0044) join
+		// ResponseType + BodyType as sources for the package path —
+		// without them, an API with only streaming or WS routes would
+		// yield an empty SourcePath. WebSocket.Recv is the same package
+		// as Send (per the analyzer's same-package check), so checking
+		// Send alone is sufficient.
+		refs := []*ir.TypeRef{r.ResponseType, r.BodyType, r.StreamType}
+		if r.WebSocket != nil {
+			refs = append(refs, r.WebSocket.Send)
+		}
+		for _, ref := range refs {
 			if ref != nil && ref.Kind == ir.KindNamed {
 				if i := strings.LastIndex(ref.Named, "."); i > 0 {
 					paths[ref.Named[:i]] = struct{}{}

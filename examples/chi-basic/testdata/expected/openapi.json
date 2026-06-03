@@ -407,6 +407,33 @@
         ],
         "type": "object"
       },
+      "EchoEvent": {
+        "properties": {
+          "echo": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "echo"
+        ],
+        "type": "object"
+      },
+      "EchoMessage": {
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
       "GoductError": {
         "properties": {
           "code": {

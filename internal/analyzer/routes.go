@@ -110,8 +110,12 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 			"(use multipart:\"...\"/form:\"...\" field tags on the request struct instead; ADR 0042)", name)
 	}
 
-	if sig.Params().Len() != 2 {
-		return fail("handler %s must be func(context.Context, T) (*U, error) or func(context.Context, T) error", name)
+	// ADR 0044: WebSocket handlers add a third parameter of type
+	// *goduct.WSConn[S, C]; otherwise the signature is the v0.1
+	// idiomatic two-param form. Any other arity loud-fails.
+	if sig.Params().Len() != 2 && sig.Params().Len() != 3 {
+		return fail("handler %s must be func(context.Context, T) (*U, error), "+
+			"func(context.Context, T) error, or func(context.Context, T, *goduct.WSConn[S, C]) error", name)
 	}
 	if !isContextContext(sig.Params().At(0).Type()) {
 		return fail("handler %s: first parameter must be context.Context", name)
@@ -126,8 +130,42 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 			reqNamed.Obj().Name(), reqNamed.Obj().Pkg().Path(), pkg.Types.Path())
 	}
 
+	// ADR 0044: the third parameter, when present, must be
+	// *goduct.WSConn[S, C] and identifies this as a WebSocket
+	// handler. The two type arguments resolve to same-package
+	// named structs (S = server→client message, C = client→server).
+	var wsSendNamed, wsRecvNamed *types.Named
+	if sig.Params().Len() == 3 {
+		s, c, ok := webSocketConnTypes(sig.Params().At(2).Type())
+		if !ok {
+			return fail("handler %s: third parameter must be *goduct.WSConn[S, C] for a WebSocket handler "+
+				"(ADR 0044); got %s", name, types.TypeString(sig.Params().At(2).Type(), nil))
+		}
+		if s.Obj().Pkg() != pkg.Types {
+			return fail("WebSocket Send type %s is defined in package %s, not in handler's package %s "+
+				"(cross-package WS message types are not supported; ADR 0044)",
+				s.Obj().Name(), s.Obj().Pkg().Path(), pkg.Types.Path())
+		}
+		if c.Obj().Pkg() != pkg.Types {
+			return fail("WebSocket Recv type %s is defined in package %s, not in handler's package %s "+
+				"(cross-package WS message types are not supported; ADR 0044)",
+				c.Obj().Name(), c.Obj().Pkg().Path(), pkg.Types.Path())
+		}
+		wsSendNamed, wsRecvNamed = s, c
+	}
+
+	// ADR 0044: WebSocket handlers must return single `error`
+	// (the wire response is the upgraded connection, not a typed
+	// body). Reject other shapes before walking the results.
+	if wsSendNamed != nil {
+		if sig.Results().Len() != 1 || !isError(sig.Results().At(0).Type()) {
+			return fail("handler %s: WebSocket handlers must return a single error "+
+				"(ADR 0044); got %d return values", name, sig.Results().Len())
+		}
+	}
+
 	// res.At(0) shapes:
-	//   case 1: error                      (no response body)
+	//   case 1: error                      (no response body / WS)
 	//   case 2: *U, error                  (idiomatic response body)
 	//   case 2: <-chan E, error            (SSE streaming, ADR 0041)
 	var respNamed *types.Named
@@ -204,13 +242,13 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		route.Tag = inferTag(route.Path)
 	}
 
-	// Streaming counts as "has response" for status-defaulting purposes
-	// (the stream IS the response). resolveStatus defaults streaming
-	// routes to 200 because every GET defaults to 200 — streaming is
-	// always GET in practice. 201 / 204 for streaming are nonsensical
-	// and the user gets the same loud-fail any non-2xx status would
-	// produce via the existing analyzer.
-	status, err := resolveStatus(dirs, route.Method, respNamed != nil || streamNamed != nil, name)
+	// Streaming + WebSocket count as "has response" for
+	// status-defaulting (the stream IS the response; the WS upgrade
+	// IS the response). resolveStatus defaults them to 200 — both
+	// shapes are always GET in practice. 201 / 204 for either is
+	// nonsensical; the user gets the existing analyzer's loud-fail.
+	status, err := resolveStatus(dirs, route.Method,
+		respNamed != nil || streamNamed != nil || wsSendNamed != nil, name)
 	if err != nil {
 		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)
 	}
@@ -269,6 +307,21 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		}
 		route.StreamType = sRef
 	}
+	// ADR 0044: WebSocket routes set Route.WebSocket with both
+	// directions' types. Same nil-on-other-shapes posture as
+	// streaming — ResponseType / BodyType / StreamType stay nil so
+	// non-WS generators see "no body".
+	if wsSendNamed != nil {
+		sRef, err := namedRefWithArgs(wsSendNamed)
+		if err != nil {
+			return fail("handler %s WebSocket Send type: %v", name, err)
+		}
+		rRef, err := namedRefWithArgs(wsRecvNamed)
+		if err != nil {
+			return fail("handler %s WebSocket Recv type: %v", name, err)
+		}
+		route.WebSocket = &ir.WebSocketTypes{Send: sRef, Recv: rRef}
+	}
 
 	// ADR 0039: capture goduct:example verbatim and resolve each
 	// goduct:errorresponse <status> <Type> against the handler's
@@ -306,6 +359,41 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)
 	}
 	return route, nil
+}
+
+// webSocketConnTypes detects whether t is *goduct.WSConn[S, C] and
+// returns the two named-struct type arguments on success (ADR 0044).
+// The structural check: t must be a *types.Pointer to a *types.Named
+// whose object lives in the goduct runtime package and is called
+// "WSConn", with exactly two type arguments, both of which resolve
+// to *types.Named structs.
+func webSocketConnTypes(t types.Type) (send, recv *types.Named, ok bool) {
+	ptr, isPtr := t.(*types.Pointer)
+	if !isPtr {
+		return nil, nil, false
+	}
+	named, isNamed := ptr.Elem().(*types.Named)
+	if !isNamed {
+		return nil, nil, false
+	}
+	obj := named.Obj()
+	if obj.Name() != "WSConn" {
+		return nil, nil, false
+	}
+	pkg := obj.Pkg()
+	if pkg == nil || pkg.Path() != "github.com/townsendmerino/goduct/runtime" {
+		return nil, nil, false
+	}
+	args := named.TypeArgs()
+	if args == nil || args.Len() != 2 {
+		return nil, nil, false
+	}
+	s, sOk := namedStruct(args.At(0))
+	c, cOk := namedStruct(args.At(1))
+	if !sOk || !cOk {
+		return nil, nil, false
+	}
+	return s, c, true
 }
 
 // lookupNamedInPkg resolves an unqualified type name against the

@@ -444,3 +444,64 @@ func TestGenerateFramework_MultiFileAndMaxBytes(t *testing.T) {
 		t.Errorf("output not valid Go: %v\n%s", err, out)
 	}
 }
+
+// TestGenerateFramework_WebSocket covers ADR 0044: a route with
+// WebSocket set emits a wrapper that calls websocket.Accept,
+// wraps the conn in a typed goduct.NewWSConn[Send, Recv], and
+// hands it to the user's handler. The coder/websocket import
+// appears in the import block.
+func TestGenerateFramework_WebSocket(t *testing.T) {
+	wsAPI := &ir.API{
+		SourceDirs: map[string]string{"pkg": "/tmp/pkg"},
+		Routes: []ir.Route{{
+			HandlerName:   "Chat",
+			Method:        "GET",
+			Path:          "/chat/:room",
+			Tag:           "chat",
+			Mode:          ir.ModeIdiomatic,
+			Pos:           "/tmp/pkg/ws.go:1:1",
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ChatReq"},
+			SuccessStatus: 200,
+			WebSocket: &ir.WebSocketTypes{
+				Send: &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ChatEvent"},
+				Recv: &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ChatMessage"},
+			},
+			PathParams: []ir.Param{{
+				GoName: "Room", WireName: "room",
+				Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"},
+			}},
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.ChatReq":     {QualifiedName: "pkg.ChatReq", Name: "ChatReq", Kind: ir.TypeStruct},
+			"pkg.ChatEvent":   {QualifiedName: "pkg.ChatEvent", Name: "ChatEvent", Kind: ir.TypeStruct},
+			"pkg.ChatMessage": {QualifiedName: "pkg.ChatMessage", Name: "ChatMessage", Kind: ir.TypeStruct},
+		},
+	}
+	for _, fw := range []string{"chi", "gin", "echo", "mux"} {
+		t.Run(fw, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := GenerateFramework(wsAPI, &buf, fw); err != nil {
+				t.Fatalf("GenerateFramework(%s): %v", fw, err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, `"github.com/coder/websocket"`) {
+				t.Errorf("%s: missing coder/websocket import:\n%s", fw, out)
+			}
+			if !strings.Contains(out, "websocket.Accept(") {
+				t.Errorf("%s: missing websocket.Accept call:\n%s", fw, out)
+			}
+			if !strings.Contains(out, "defer c.CloseNow()") {
+				t.Errorf("%s: missing defer c.CloseNow():\n%s", fw, out)
+			}
+			if !strings.Contains(out, "goduct.NewWSConn[ChatEvent, ChatMessage](c)") {
+				t.Errorf("%s: missing typed NewWSConn call:\n%s", fw, out)
+			}
+			if !strings.Contains(out, "Chat(") {
+				t.Errorf("%s: missing handler call:\n%s", fw, out)
+			}
+			if _, err := format.Source(buf.Bytes()); err != nil {
+				t.Errorf("%s: generated output not valid Go: %v\n%s", fw, err, out)
+			}
+		})
+	}
+}

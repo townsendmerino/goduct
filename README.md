@@ -339,6 +339,27 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **Server-Sent Events ([ADR 0041](docs/decisions/0041-sse-streaming.md)):** a handler with signature `func(ctx, T) (<-chan E, error)` becomes an SSE endpoint. The generated TS client method returns `AsyncIterable<E>` (iterate with `for await`); the four framework adapters all delegate to a generic `goduct.SSEStream` runtime helper that handles headers, flushing, and ctx-cancel. OpenAPI emits `text/event-stream`. Postman and React Query hooks skip streaming routes (Postman doesn't model SSE; React Query v5 has no first-class iterator hook); users call the AsyncIterable directly.
 
+**WebSocket ([ADR 0044](docs/decisions/0044-websocket-bridge.md)):** a handler with signature `func(ctx, T, *goduct.WSConn[S, C]) error` becomes a typed full-duplex endpoint. The runtime helper wraps [coder/websocket](https://github.com/coder/websocket) (goduct's first non-stdlib runtime dep); `conn.Send(ctx, S)` and `conn.Recv(ctx) (C, error)` give typed send/receive on the server side. The TS client method returns a `WSConnection<S, C>` with `.send(msg: C)` and an AsyncIterable `.messages()` yielding `S`. OpenAPI / Postman / hooks skip WS routes (OpenAPI 3.1 doesn't model WS natively; AsyncAPI sibling export deferred).
+
+```go
+// goduct:route GET /users/:id/echo
+func Echo(ctx context.Context, req EchoRequest, conn *goduct.WSConn[EchoEvent, EchoMessage]) error {
+    for {
+        msg, err := conn.Recv(ctx)
+        if err != nil { return err }
+        if err := conn.Send(ctx, EchoEvent{Echo: msg.Text}); err != nil { return err }
+    }
+}
+```
+
+```typescript
+const conn = api.users.echo({ id: "u_1" });
+conn.send({ text: "hello" });
+for await (const ev of conn.messages()) {
+    console.log(ev.echo);
+}
+```
+
 **File uploads ([ADR 0042](docs/decisions/0042-file-uploads.md), [ADR 0043](docs/decisions/0043-v06-closure-pass.md)):** two shapes share the same TS-client + OpenAPI surface. The **typed shape** mixes `*multipart.FileHeader` (single) or `[]*multipart.FileHeader` (multi) fields tagged `multipart:"..."` with text fields tagged `form:"..."` in the same request struct; the generated adapter calls `ParseMultipartForm` and populates each field. The **raw shape** is an existing raw handler plus `goduct:upload`; the user owns the multipart parsing while goduct still emits the FormData-aware TS client + `multipart/form-data` OpenAPI metadata. `json:` and `multipart:`/`form:` on the same struct loud-fail (a wire format is one or the other). 32 MiB is the typed-mode in-memory cap by default; override via `goduct.json`'s `upload.maxBytes`. Per-field byte limit via `validate:"maxbytes=N"` (enforced server-side).
 
 ```go
@@ -430,9 +451,11 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.6** — File uploads in two shapes: typed multipart (request struct mixes `multipart:"file"` and `form:"caption"` tags) and a raw-mode `goduct:upload` toggle. Stdlib only, 32 MiB typed cap; chi-basic ships an UploadAvatar route.
 
-**v0.6.1** (this release) — Closure pass: chi-basic SSE demo (`WatchUserEvents`), multi-file uploads (`[]*multipart.FileHeader`), configurable upload size via `goduct.json`'s `upload.maxBytes`, and a per-field `validate:"maxbytes=N"` enforcement.
+**v0.6.1** — Closure pass: chi-basic SSE demo (`WatchUserEvents`), multi-file uploads (`[]*multipart.FileHeader`), configurable upload size via `goduct.json`'s `upload.maxBytes`, and a per-field `validate:"maxbytes=N"` enforcement.
 
-**v0.7** — WebSocket bridge (probably), plus the deferrals in [TODO.md](TODO.md).
+**v0.7** (this release) — WebSocket bridge: `func(ctx, T, *goduct.WSConn[S, C]) error` becomes a typed full-duplex endpoint; TS client returns `WSConnection<S, C>` with `.send` + AsyncIterable `.messages()`; runtime wraps [coder/websocket](https://github.com/coder/websocket) (first non-stdlib runtime dep).
+
+**v0.7.1** — WebSocket polish: subprotocols, ping/pong tuning, binary frames, AsyncAPI export, TS-side reconnection (see [TODO.md](TODO.md)).
 
 **Maybe** — Swift client, Kotlin client, Python client. These follow the same pattern: implement a `Generator`, consume the IR.
 

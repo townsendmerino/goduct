@@ -11,14 +11,35 @@ finer-grained, ADR-anchored punch list.
 
 ---
 
-## v0.7 — WebSocket bridge (next big feature)
+## v0.7.1 — WebSocket polish
 
-- **WebSocket bridge.** No ADR yet. Adds full-duplex on top of SSE
-  patterns. Open: which Go WS library to depend on (goduct has
-  zero non-stdlib deps for the runtime today; the candidates are
-  `gorilla/websocket`, `nhooyr.io/websocket`, `coder/websocket`,
-  or `golang.org/x/net/websocket`). **Trigger:** start of v0.7,
-  after a deliberate "do we accept a WS dep?" decision.
+Five items deferred during v0.7 per
+[ADR 0044 §9](docs/decisions/0044-websocket-bridge.md).
+
+- **Subprotocols** (Sec-WebSocket-Protocol). v0.7 always uses the
+  default subprotocol. Adding a `goduct:wssubprotocol` directive
+  is a small follow-up. **Trigger:** user reports needing a
+  named subprotocol (mqtt, graphql-ws, etc.).
+
+- **Ping/pong timeout customization.** coder/websocket has
+  sensible defaults; surfacing knobs through goduct.json is a
+  future ADR. **Trigger:** user reports keepalive-related
+  disconnections.
+
+- **Binary frames.** v0.7 messages are all JSON text frames via
+  wsjson. Binary support is a different IR shape (message type
+  is `[]byte`, not a named struct). **Trigger:** user reports a
+  protobuf-over-WS or audio-streaming use case.
+
+- **AsyncAPI export.** Proper protocol-aware spec emission via
+  AsyncAPI 3.0. Adds another sibling generator like swaggerui.
+  **Trigger:** user reports needing WS docs in the same place as
+  HTTP docs.
+
+- **TS-side reconnection / backoff / buffering.** Browser
+  WebSocket is fire-and-forget; the current `WSConnection` class
+  doesn't auto-retry. **Trigger:** user reports needing
+  transparent reconnect on flaky networks.
 
 ---
 

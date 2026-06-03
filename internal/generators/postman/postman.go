@@ -164,7 +164,10 @@ func buildItems(api *ir.API) []any {
 		// would hang indefinitely with no useful UI affordance), so
 		// streaming routes are omitted from the collection. The
 		// openapi.json + swagger-ui still describe them.
-		if r.StreamType != nil {
+		// ADR 0044: WebSocket routes need Postman's distinct ws-item
+		// shape; emission deferred. Skip rather than emit a misleading
+		// HTTP GET that won't work.
+		if r.StreamType != nil || r.WebSocket != nil {
 			continue
 		}
 		byTag[r.Tag] = append(byTag[r.Tag], r)

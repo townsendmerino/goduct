@@ -114,6 +114,20 @@ type UserEvent struct {
 	At     time.Time `json:"at"`
 }
 
+// EchoMessage is what a WebSocket client sends to /users/:id/echo
+// (ADR 0044: WS demo on the chi-basic golden). The server echoes
+// each received message back as an EchoEvent.
+type EchoMessage struct {
+	Text string `json:"text"`
+}
+
+// EchoEvent is the server → client payload — one per received
+// EchoMessage, with the same text.
+type EchoEvent struct {
+	Echo string    `json:"echo"`
+	At   time.Time `json:"at"`
+}
+
 // CreateUser creates a new user.
 //
 // goduct:route          POST /users
@@ -194,4 +208,28 @@ func WatchUserEvents(ctx context.Context, req WatchUserEventsRequest) (<-chan Us
 		<-ctx.Done()
 	}()
 	return out, nil
+}
+
+// ---- GET /users/:id/echo (WebSocket, ADR 0044) ----
+
+type EchoRequest struct {
+	ID string `path:"id" validate:"required"`
+}
+
+// Echo accepts a WebSocket connection and echoes each received
+// EchoMessage back as an EchoEvent.
+//
+// goduct:route GET /users/:id/echo
+// goduct:tag   users
+func Echo(ctx context.Context, req EchoRequest, conn *goduct.WSConn[EchoEvent, EchoMessage]) error {
+	_ = req.ID
+	for {
+		msg, err := conn.Recv(ctx)
+		if err != nil {
+			return err
+		}
+		if err := conn.Send(ctx, EchoEvent{Echo: msg.Text, At: time.Now()}); err != nil {
+			return err
+		}
+	}
 }

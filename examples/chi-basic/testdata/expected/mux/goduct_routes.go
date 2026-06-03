@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/coder/websocket"
+
 	goduct "github.com/townsendmerino/goduct/runtime"
 )
 
@@ -20,6 +22,7 @@ func Register(r *http.ServeMux) {
 	r.HandleFunc("DELETE /users/{id}", handleDeleteUser)
 	r.HandleFunc("POST /users/{id}/avatar", handleUploadAvatar)
 	r.HandleFunc("GET /users/{id}/events", handleWatchUserEvents)
+	r.HandleFunc("GET /users/{id}/echo", handleEcho)
 }
 
 func handleGetUser(w http.ResponseWriter, r *http.Request) {
@@ -153,4 +156,16 @@ func handleWatchUserEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 	goduct.SSEStream(r.Context(), w, ch)
+}
+
+func handleEcho(w http.ResponseWriter, r *http.Request) {
+	var req EchoRequest
+	req.ID = r.PathValue("id")
+	c, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		goduct.WriteError(w, goduct.BadRequest("websocket accept failed"))
+		return
+	}
+	defer c.CloseNow()
+	_ = Echo(r.Context(), req, goduct.NewWSConn[EchoEvent, EchoMessage](c))
 }

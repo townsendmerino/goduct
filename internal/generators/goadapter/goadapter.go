@@ -288,6 +288,17 @@ func importBlock(api *ir.API, fw *framework) string {
 			}
 		}
 	}
+	// ADR 0044: WebSocket routes need coder/websocket for the
+	// Accept call in the generated wrapper. Tracked separately so
+	// the third-party import group stays scoped to actual need.
+	needWS := false
+	for _, rt := range api.Routes {
+		if rt.WebSocket != nil {
+			needWS = true
+			break
+		}
+	}
+
 	var std []string
 	if needJSON {
 		std = append(std, `"encoding/json"`)
@@ -302,8 +313,21 @@ func importBlock(api *ir.API, fw *framework) string {
 	for _, s := range std {
 		b.WriteString("\t" + s + "\n")
 	}
+	// Third-party imports group: framework (per fw.importLine) +
+	// coder/websocket when WS routes exist. gofmt/go/format.Source
+	// sorts within this group.
+	var thirdParty []string
 	if fw.importLine != "" {
-		b.WriteString("\n\t" + fw.importLine + "\n")
+		thirdParty = append(thirdParty, fw.importLine)
+	}
+	if needWS {
+		thirdParty = append(thirdParty, `"github.com/coder/websocket"`)
+	}
+	if len(thirdParty) > 0 {
+		b.WriteString("\n")
+		for _, s := range thirdParty {
+			b.WriteString("\t" + s + "\n")
+		}
 	}
 	b.WriteString("\n\t" + goductRuntimeImport + "\n)")
 	return b.String()
@@ -345,6 +369,12 @@ func rawRequestExpr(fw *framework) string {
 // BEFORE path params are applied, so a client cannot override a path
 // param via the body. Do not reorder.
 func wrapper(fw *framework, rt ir.Route, api *ir.API) string {
+	// ADR 0044: WebSocket routes take their own code path — upgrade
+	// the connection via coder/websocket.Accept, construct a typed
+	// goduct.WSConn, then call the user's handler.
+	if rt.WebSocket != nil {
+		return wsWrapper(fw, rt)
+	}
 	// ADR 0041: streaming routes take a different code path —
 	// no body decode (streaming is always GET), no JSON response
 	// write, delegate to goduct.SSEStream after setting headers.
@@ -537,6 +567,45 @@ func uploadParseBlock(fw *framework, goName, wire, reqExpr, parse, want string, 
 		b.WriteString("\t\t" + fw.earlyReturn + "\n\t}")
 	}
 	b.WriteString("\n")
+	return b.String()
+}
+
+// wsWrapper renders the handle<Name> for a WebSocket route (ADR 0044).
+// Shape: var req + path/query/header assignment, then websocket.Accept
+// to upgrade the HTTP connection, then NewWSConn[Send, Recv] to wrap
+// it, then call the user's handler. Error from Accept loud-fails as a
+// BadRequest; the handler's error return is swallowed (the upgrade has
+// already happened; we can't write an HTTP response after). CloseNow
+// on defer guarantees cleanup if the handler returns without
+// explicitly closing.
+func wsWrapper(fw *framework, rt ir.Route) string {
+	reqType := requestTypeName(rt)
+	sendName := shortName(rt.WebSocket.Send.Named)
+	recvName := shortName(rt.WebSocket.Recv.Named)
+	var b strings.Builder
+	b.WriteString("func handle" + rt.HandlerName + "(" + fw.wrapperParams + ")")
+	if fw.wrapperRet != "" {
+		b.WriteString(" " + fw.wrapperRet)
+	}
+	b.WriteString(" {\n")
+	b.WriteString("\tvar req " + reqType + "\n")
+	for _, p := range rt.PathParams {
+		b.WriteString("\treq." + p.GoName + " = " + fw.pathParamExpr(p.WireName) + "\n")
+	}
+	if len(rt.QueryParams) > 0 {
+		b.WriteString("\tq := " + fw.queryExpr + "\n")
+		for _, p := range rt.QueryParams {
+			b.WriteString(queryAssign(fw, p))
+		}
+	}
+	b.WriteString("\tc, err := websocket.Accept(" + fw.writerExpr + ", " + rawRequestExpr(fw) + ", nil)\n")
+	b.WriteString("\tif err != nil {\n\t\tgoduct.WriteError(" + fw.writerExpr +
+		", goduct.BadRequest(\"websocket accept failed\"))\n\t\t" + fw.earlyReturn + "\n\t}\n")
+	b.WriteString("\tdefer c.CloseNow()\n")
+	b.WriteString("\t_ = " + rt.HandlerName + "(" + fw.ctxExpr + ", req, goduct.NewWSConn[" +
+		sendName + ", " + recvName + "](c))\n")
+	b.WriteString(fw.finalReturn)
+	b.WriteString("}")
 	return b.String()
 }
 

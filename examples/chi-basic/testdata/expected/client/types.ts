@@ -46,6 +46,17 @@ export interface UserEvent {
   at: string;
 }
 
+/** What a WebSocket client sends to /users/:id/echo (ADR 0044: WS demo on the chi-basic golden). */
+export interface EchoMessage {
+  text: string;
+}
+
+/** The server → client payload — one per received EchoMessage, with the same text. */
+export interface EchoEvent {
+  echo: string;
+  at: string;
+}
+
 export interface UpdateUserRequest {
   name?: string;
   status?: UserStatus;

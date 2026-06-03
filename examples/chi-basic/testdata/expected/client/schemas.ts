@@ -50,6 +50,17 @@ export const UserEvent = z.object({
 });
 export type UserEvent = z.infer<typeof UserEvent>;
 
+export const EchoMessage = z.object({
+  text: z.string(),
+});
+export type EchoMessage = z.infer<typeof EchoMessage>;
+
+export const EchoEvent = z.object({
+  echo: z.string(),
+  at: z.string().datetime({ offset: true }),
+});
+export type EchoEvent = z.infer<typeof EchoEvent>;
+
 export const UpdateUserRequest = z.object({
   name: z.string().optional(),
   status: UserStatus.optional(),

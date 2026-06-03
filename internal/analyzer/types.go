@@ -108,6 +108,22 @@ func DiscoverTypes(pkg *packages.Package, routes []ir.Route) (map[string]ir.Type
 				add(x)
 			}
 		}
+		// ADR 0044: WebSocket Send + Recv types are reachable seeds.
+		// tsclient + tstypes + zod all need both rendered so the
+		// WSConnection<Send, Recv> generic + the per-message Send/Recv
+		// type aliases resolve.
+		if r.WebSocket != nil {
+			for _, ref := range []*ir.TypeRef{r.WebSocket.Send, r.WebSocket.Recv} {
+				if ref == nil {
+					continue
+				}
+				var d []string
+				collectNamedDeps(*ref, &d)
+				for _, x := range d {
+					add(x)
+				}
+			}
+		}
 	}
 
 	for _, s := range seeds {

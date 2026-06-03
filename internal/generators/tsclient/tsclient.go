@@ -161,6 +161,88 @@ func hasStreaming(api *ir.API) bool {
 	return false
 }
 
+// hasWebSocket reports whether any route in api is a WebSocket
+// route (ADR 0044). Used to decide whether to emit the
+// WSConnection class + connectWS helper.
+func hasWebSocket(api *ir.API) bool {
+	for _, r := range api.Routes {
+		if r.WebSocket != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// wsScaffold is appended to client.ts when api has at least one
+// WebSocket route (ADR 0044). Defines the WSConnection<S, C>
+// class (with typed send + AsyncIterable messages + close) and a
+// connectWS<S, C> helper that builds the URL (http→ws, https→wss)
+// and returns a WSConnection.
+const wsScaffold = `
+
+export class WSConnection<S, C> {
+  private ws: WebSocket;
+  private queue: S[] = [];
+  private waiters: ((v: IteratorResult<S>) => void)[] = [];
+  private closed = false;
+
+  constructor(url: string) {
+    this.ws = new WebSocket(url);
+    this.ws.onmessage = (ev) => {
+      const data = JSON.parse(typeof ev.data === "string" ? ev.data : "") as S;
+      const w = this.waiters.shift();
+      if (w) w({ value: data, done: false });
+      else this.queue.push(data);
+    };
+    this.ws.onclose = () => {
+      this.closed = true;
+      for (const w of this.waiters) w({ value: undefined as never, done: true });
+      this.waiters = [];
+    };
+  }
+
+  send(msg: C): void {
+    this.ws.send(JSON.stringify(msg));
+  }
+
+  async *messages(): AsyncIterable<S> {
+    while (true) {
+      if (this.queue.length > 0) {
+        yield this.queue.shift()!;
+        continue;
+      }
+      if (this.closed) return;
+      const next = await new Promise<IteratorResult<S>>((resolve) => {
+        this.waiters.push(resolve);
+      });
+      if (next.done) return;
+      yield next.value;
+    }
+  }
+
+  close(code?: number, reason?: string): void {
+    this.ws.close(code, reason);
+  }
+}
+
+function connectWS<S, C>(opts: ClientOptions, r: { path: string; query?: Record<string, string | number | boolean | undefined> }): WSConnection<S, C> {
+  let url = opts.baseUrl + r.path;
+  if (r.query) {
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(r.query)) {
+      if (v !== undefined) usp.set(k, String(v));
+    }
+    const qs = usp.toString();
+    if (qs) url += "?" + qs;
+  }
+  // http(s) → ws(s) for the WebSocket scheme. Relative baseUrls (no
+  // scheme) inherit the page's scheme via window.location at runtime;
+  // we just leave them alone here.
+  url = url.replace(/^http(s?):/, "ws$1:");
+  return new WSConnection<S, C>(url);
+}
+`
+
 // Generate writes a deterministic client.ts for api to w (ADR 0022).
 func Generate(api *ir.API, w io.Writer) error {
 	var b strings.Builder
@@ -173,6 +255,11 @@ func Generate(api *ir.API, w io.Writer) error {
 	// without streaming routes get the v0.4-byte-identical scaffold.
 	if hasStreaming(api) {
 		b.WriteString(streamScaffold)
+	}
+	// ADR 0044: WSConnection class + connectWS helper, same
+	// conditional emission so non-WS APIs see no shape change.
+	if hasWebSocket(api) {
+		b.WriteString(wsScaffold)
 	}
 	b.WriteString("\nexport function createClient(opts: ClientOptions) {\n  return {\n")
 
@@ -206,6 +293,27 @@ func renderMethod(r ir.Route, api *ir.API) string {
 	var b strings.Builder
 	if d := gen.JSDocFull(r.HandlerName, r.Doc); d != "" {
 		b.WriteString("      /** " + d + " */\n")
+	}
+	// ADR 0044: WebSocket routes return a WSConnection<Send, Recv>
+	// from the connectWS scaffold helper. No body / response parsing
+	// — the user calls .send + iterates .messages() on their own.
+	if r.WebSocket != nil {
+		send := tsTypeRef(*r.WebSocket.Send)
+		recv := tsTypeRef(*r.WebSocket.Recv)
+		ret := "WSConnection<" + send + ", " + recv + ">"
+		b.WriteString("      " + gen.MethodName(r.HandlerName, r.Tag) +
+			": (" + signature(r, adapters) + "): " + ret + " =>\n")
+		b.WriteString("        connectWS<" + send + ", " + recv + ">(opts, {\n")
+		b.WriteString("          path: " + pathExpr(r.Path) + ",\n")
+		if len(r.QueryParams) > 0 {
+			parts := make([]string, len(r.QueryParams))
+			for i, q := range r.QueryParams {
+				parts[i] = q.WireName + ": params." + q.WireName
+			}
+			b.WriteString("          query: { " + strings.Join(parts, ", ") + " },\n")
+		}
+		b.WriteString("        }),")
+		return b.String()
 	}
 	// ADR 0041: streaming routes return AsyncIterable<E> and delegate
 	// to the streamSSE scaffold helper; no zod validation per event

@@ -59,7 +59,8 @@ func Generate(api *ir.API, w io.Writer) error {
 		// ADR 0041: streaming routes skip hooks emission — React Query
 		// v5 has no first-class subscription/iterator hook in v0.5.
 		// Users call the AsyncIterable directly from the typed client.
-		if r.StreamType != nil {
+		// ADR 0044: WebSocket routes skip for the same reason.
+		if r.StreamType != nil || r.WebSocket != nil {
 			continue
 		}
 		if !first {
