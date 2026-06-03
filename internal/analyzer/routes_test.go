@@ -29,8 +29,8 @@ var chiBasicWant = []struct {
 	bodyType string // qualified name or "" for nil
 	respType string // qualified name or "" for nil
 }{
-	{"GetUser", "GET", "/users/:id", "users", 200, 1, 0, 0, "", chiBasicPkg + ".User"},
-	{"ListUsers", "GET", "/users", "users", 200, 0, 2, 0, "", chiBasicPkg + ".ListUsersResponse"},
+	{"GetUser", "GET", "/users/:id", "users", 200, 1, 1, 0, "", chiBasicPkg + ".User"},
+	{"ListUsers", "GET", "/users", "users", 200, 0, 4, 0, "", chiBasicPkg + ".ListUsersResponse"},
 	{"CreateUser", "POST", "/users", "users", 201, 0, 0, 0, chiBasicPkg + ".CreateUserRequest", chiBasicPkg + ".User"},
 	{"UpdateUser", "PATCH", "/users/:id", "users", 200, 1, 0, 0, chiBasicPkg + ".UpdateUserRequest", chiBasicPkg + ".User"},
 	{"DeleteUser", "DELETE", "/users/:id", "users", 204, 1, 0, 0, "", ""},

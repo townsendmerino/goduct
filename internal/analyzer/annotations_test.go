@@ -240,3 +240,89 @@ func TestParseDirectives_Example_Errorresponse(t *testing.T) {
 		}
 	})
 }
+
+// TestParseDirectives_Requestexample_Security covers the v0.4.1
+// directives (ADR 0040): single-shot capture, repeatable security
+// with the `none`-vs-named contradiction rejected, and a
+// duplicate-named-scheme loud-fail.
+func TestParseDirectives_Requestexample_Security(t *testing.T) {
+	t.Run("requestexample captures the JSON literal verbatim", func(t *testing.T) {
+		const j = `{"email":"alice@example.com","name":"Alice"}`
+		d, err := ParseDirectives("goduct:route POST /u\ngoduct:requestexample " + j)
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if d.RequestExample != j {
+			t.Errorf("RequestExample = %q, want %q", d.RequestExample, j)
+		}
+	})
+	t.Run("requestexample without argument is a loud-fail", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route POST /u\ngoduct:requestexample")
+		if err == nil || !strings.Contains(err.Error(), "JSON-literal") {
+			t.Errorf("expected JSON-literal error, got %v", err)
+		}
+	})
+	t.Run("duplicate requestexample loud-fails", func(t *testing.T) {
+		_, err := ParseDirectives(
+			"goduct:route POST /u\n" +
+				"goduct:requestexample {}\n" +
+				"goduct:requestexample []")
+		if err == nil || !strings.Contains(err.Error(), "duplicate goduct:requestexample") {
+			t.Errorf("expected duplicate error, got %v", err)
+		}
+	})
+	t.Run("security single named scheme", func(t *testing.T) {
+		d, err := ParseDirectives("goduct:route GET /a\ngoduct:security bearerAuth")
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if len(d.Security) != 1 || d.Security[0] != "bearerAuth" {
+			t.Errorf("Security = %v", d.Security)
+		}
+	})
+	t.Run("security `none` is captured", func(t *testing.T) {
+		d, err := ParseDirectives("goduct:route GET /healthz\ngoduct:security none")
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if len(d.Security) != 1 || d.Security[0] != "none" {
+			t.Errorf("Security = %v", d.Security)
+		}
+	})
+	t.Run("security multiple named schemes compose as OR", func(t *testing.T) {
+		d, err := ParseDirectives(
+			"goduct:route GET /a\n" +
+				"goduct:security bearerAuth\n" +
+				"goduct:security apiKey")
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if len(d.Security) != 2 || d.Security[0] != "bearerAuth" || d.Security[1] != "apiKey" {
+			t.Errorf("Security = %v", d.Security)
+		}
+	})
+	t.Run("security `none` + named scheme is contradictory", func(t *testing.T) {
+		_, err := ParseDirectives(
+			"goduct:route GET /a\n" +
+				"goduct:security none\n" +
+				"goduct:security bearerAuth")
+		if err == nil || !strings.Contains(err.Error(), "`none` cannot be combined") {
+			t.Errorf("expected contradiction error, got %v", err)
+		}
+	})
+	t.Run("security duplicate-named loud-fails", func(t *testing.T) {
+		_, err := ParseDirectives(
+			"goduct:route GET /a\n" +
+				"goduct:security bearerAuth\n" +
+				"goduct:security bearerAuth")
+		if err == nil || !strings.Contains(err.Error(), "duplicate goduct:security") {
+			t.Errorf("expected duplicate-named error, got %v", err)
+		}
+	})
+	t.Run("security takes a single argument", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route GET /a\ngoduct:security bearerAuth apiKey")
+		if err == nil || !strings.Contains(err.Error(), "single argument") {
+			t.Errorf("expected single-argument error, got %v", err)
+		}
+	})
+}

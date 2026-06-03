@@ -22,6 +22,12 @@ export const User = z.object({
 });
 export type User = z.infer<typeof User>;
 
+export const ValidationError = z.object({
+  field: z.string(),
+  errors: z.array(z.string()),
+});
+export type ValidationError = z.infer<typeof ValidationError>;
+
 export const ListUsersResponse = z.object({
   users: z.array(User),
   nextCursor: z.string().optional(),
@@ -32,6 +38,8 @@ export const CreateUserRequest = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   role: z.enum(["admin", "viewer", "member"]),
+  website: z.string().url().optional(),
+  referralCode: z.string().length(8).optional(),
 });
 export type CreateUserRequest = z.infer<typeof CreateUserRequest>;
 

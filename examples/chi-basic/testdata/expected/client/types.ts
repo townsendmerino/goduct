@@ -20,6 +20,12 @@ export interface User {
   profile?: Profile;
 }
 
+/** Describes one field-level validation failure on a request body. */
+export interface ValidationError {
+  field: string;
+  errors: string[];
+}
+
 export interface ListUsersResponse {
   users: User[];
   nextCursor?: string;
@@ -29,6 +35,8 @@ export interface CreateUserRequest {
   email: string;
   name: string;
   role: string;
+  website?: string;
+  referralCode?: string;
 }
 
 export interface UpdateUserRequest {

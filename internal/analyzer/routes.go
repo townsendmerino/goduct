@@ -217,6 +217,19 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 			ir.ErrorResponse{Status: er.Status, Type: ref})
 	}
 
+	// ADR 0040: per-handler request example + security overrides.
+	route.RequestExample = dirs.RequestExample
+	for _, s := range dirs.Security {
+		if s == "none" {
+			// The `none` form is an empty OpenAPI requirement object,
+			// which OpenAPI 3.1 reads as "this operation is explicitly
+			// public, overriding any document-level requirements".
+			route.Security = append(route.Security, ir.SecurityRequirement{})
+			continue
+		}
+		route.Security = append(route.Security, ir.SecurityRequirement{Schemes: []string{s}})
+	}
+
 	if err := checkPathParams(route); err != nil {
 		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)
 	}

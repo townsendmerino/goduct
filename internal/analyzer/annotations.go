@@ -45,6 +45,18 @@ type Directives struct {
 	// loud-fail).
 	ErrorResponses []ErrorResponseDirective
 
+	// RequestExample is the raw JSON literal from
+	// `goduct:requestexample <json>` (ADR 0040). Single-shot;
+	// duplicates loud-fail. Empty when absent.
+	RequestExample string
+
+	// Security captures each `goduct:security <name|none>` line
+	// (ADR 0040). Each entry is the scheme name, or the literal
+	// "none" for an explicit unauthenticated operation. Repeatable
+	// for OR-semantics. The `none + named` contradiction is
+	// detected when applied; see apply().
+	Security []string
+
 	// Doc is the comment text with every goduct: line removed and
 	// surrounding whitespace trimmed. Interior blank lines are preserved.
 	Doc string
@@ -101,10 +113,10 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 	fail := func(msg string) error {
 		return fmt.Errorf("%s (line %d): %s", msg, line, src)
 	}
-	// errorresponse is repeatable (one per status), so it bypasses
-	// the seen-once guard; the case branch enforces "one entry per
-	// status" instead. Every other directive is single-shot.
-	if name != "errorresponse" {
+	// errorresponse and security are repeatable; each case branch
+	// enforces its own per-entry duplicate rules. Every other
+	// directive is single-shot.
+	if name != "errorresponse" && name != "security" {
 		if seen[name] {
 			return fail("duplicate " + directivePrefix + name + " directive")
 		}
@@ -179,6 +191,32 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 		}
 		d.ErrorResponses = append(d.ErrorResponses,
 			ErrorResponseDirective{Status: status, TypeName: f[1]})
+	case "requestexample":
+		if args == "" {
+			return fail("requestexample requires a JSON-literal argument")
+		}
+		if d.RequestExample != "" {
+			return fail("duplicate goduct:requestexample directive")
+		}
+		d.RequestExample = args
+	case "security":
+		v, err := singleArg(args, "security")
+		if err != nil {
+			return fail(err.Error())
+		}
+		// `none` and a named scheme on the same handler is
+		// contradictory — either the op is public or it has a
+		// requirement; not both. Detect on apply so the offending
+		// line carries the (line N) suffix.
+		for _, prev := range d.Security {
+			if (prev == "none") != (v == "none") {
+				return fail("goduct:security `none` cannot be combined with a named scheme")
+			}
+			if prev == v {
+				return fail("duplicate goduct:security " + strconv.Quote(v))
+			}
+		}
+		d.Security = append(d.Security, v)
 	default:
 		return fail("unknown directive " + strconv.Quote(directivePrefix+name))
 	}

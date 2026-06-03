@@ -119,13 +119,18 @@ type pathItem struct {
 }
 
 type operation struct {
-	Tags        []string             `json:"tags,omitempty"`
-	Summary     string               `json:"summary,omitempty"`
-	Description string               `json:"description,omitempty"`
-	OperationID string               `json:"operationId,omitempty"`
-	Parameters  []parameter          `json:"parameters,omitempty"`
-	RequestBody *requestBody         `json:"requestBody,omitempty"`
-	Responses   map[string]*response `json:"responses"`
+	Tags        []string                `json:"tags,omitempty"`
+	Summary     string                  `json:"summary,omitempty"`
+	Description string                  `json:"description,omitempty"`
+	OperationID string                  `json:"operationId,omitempty"`
+	Parameters  []parameter             `json:"parameters,omitempty"`
+	RequestBody *requestBody            `json:"requestBody,omitempty"`
+	Responses   map[string]*response    `json:"responses"`
+	// Security is omitempty: nil/empty means the operation inherits
+	// the document-level requirements per ADR 0040. An empty slice
+	// is NOT the same as the `none` form — that is represented by
+	// a single requirement with an empty inner map.
+	Security    []map[string][]string `json:"security,omitempty"`
 }
 
 type parameter struct {
@@ -280,13 +285,21 @@ func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 		})
 	}
 
-	// Request body (when a body route).
+	// Request body (when a body route). ADR 0040: optionally attach
+	// goduct:requestexample to the body's mediaType.
 	if r.BodyType != nil {
+		mt := &mediaType{Schema: schemaForRef(api, *r.BodyType)}
+		if r.RequestExample != "" {
+			var ex any
+			if err := json.Unmarshal([]byte(r.RequestExample), &ex); err != nil {
+				return nil, fmt.Errorf("openapi: handler %s: goduct:requestexample is not valid JSON: %w",
+					r.HandlerName, err)
+			}
+			mt.Example = ex
+		}
 		op.RequestBody = &requestBody{
 			Required: true,
-			Content: map[string]*mediaType{
-				"application/json": {Schema: schemaForRef(api, *r.BodyType)},
-			},
+			Content:  map[string]*mediaType{"application/json": mt},
 		}
 	}
 
@@ -340,6 +353,19 @@ func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 			}},
 		},
 	}
+
+	// ADR 0040: per-handler security overrides. Empty Schemes
+	// becomes an empty inner map (the OpenAPI 3.1 `none` form);
+	// a non-empty Schemes becomes a single-key map with an empty
+	// scopes list (scopes deferred to v0.5).
+	for _, req := range r.Security {
+		entry := map[string][]string{}
+		for _, scheme := range req.Schemes {
+			entry[scheme] = []string{}
+		}
+		op.Security = append(op.Security, entry)
+	}
+
 	return op, nil
 }
 

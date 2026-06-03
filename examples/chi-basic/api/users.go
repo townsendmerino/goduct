@@ -1,12 +1,16 @@
 // Package api is the example backend that goduct's analyzer consumes.
 // It is intentionally small but exercises:
-//   - GET with path param
-//   - GET with query params (one optional)
-//   - POST with JSON body and validation
+//   - GET with path + query params (combined argument object on the
+//     TS client; ADR 0040 §3 coverage)
+//   - GET with int/string/bool/float query params (every adapter
+//     query-parse path)
+//   - POST with JSON body, validation (required/email/url/len/oneof),
+//     a per-status errorresponse, and a goduct:requestexample
 //   - PATCH with path param + body
 //   - DELETE with path param, no response body
 //   - a referenced enum
 //   - a nested struct in a response
+//   - the v0.4 goduct:example directive on a response
 package api
 
 import (
@@ -40,10 +44,19 @@ type Profile struct {
 	Tags      []string `json:"tags"`
 }
 
-// ---- GET /users/:id ----
+// ValidationError describes one field-level validation failure on a
+// request body. CreateUser returns 400 with this shape per
+// goduct:errorresponse 400 ValidationError (ADR 0039 / 0040 §3).
+type ValidationError struct {
+	Field  string   `json:"field"`
+	Errors []string `json:"errors"`
+}
+
+// ---- GET /users/:id?include=... ----
 
 type GetUserRequest struct {
-	ID string `path:"id" validate:"required"`
+	ID      string `path:"id"      validate:"required"`
+	Include string `query:"include"` // optional: "profile" | "permissions"
 }
 
 // GetUser returns a single user by ID.
@@ -62,8 +75,10 @@ func GetUser(ctx context.Context, req GetUserRequest) (*User, error) {
 // ---- GET /users ----
 
 type ListUsersRequest struct {
-	Limit  int    `query:"limit"  validate:"min=1,max=100"`
-	Cursor string `query:"cursor"`
+	Limit    int      `query:"limit"    validate:"min=1,max=100"`
+	Cursor   string   `query:"cursor"`
+	Active   *bool    `query:"active"`   // optional: filter by Status == active
+	MinScore *float64 `query:"minScore"` // optional: filter by min score
 }
 
 type ListUsersResponse struct {
@@ -82,16 +97,20 @@ func ListUsers(ctx context.Context, req ListUsersRequest) (*ListUsersResponse, e
 // ---- POST /users ----
 
 type CreateUserRequest struct {
-	Email string `json:"email" validate:"required,email"`
-	Name  string `json:"name"  validate:"required,min=1"`
-	Role  string `json:"role"  validate:"required,oneof=admin viewer member"`
+	Email        string `json:"email"                  validate:"required,email"`
+	Name         string `json:"name"                   validate:"required,min=1"`
+	Role         string `json:"role"                   validate:"required,oneof=admin viewer member"`
+	Website      string `json:"website,omitempty"      validate:"omitempty,url"`
+	ReferralCode string `json:"referralCode,omitempty" validate:"omitempty,len=8"`
 }
 
 // CreateUser creates a new user.
 //
-// goduct:route  POST /users
-// goduct:status 201
-// goduct:tag    users
+// goduct:route          POST /users
+// goduct:status         201
+// goduct:tag            users
+// goduct:errorresponse  400 ValidationError
+// goduct:requestexample {"email":"alice@example.com","name":"Alice","role":"member"}
 func CreateUser(ctx context.Context, req CreateUserRequest) (*User, error) {
 	return &User{ID: "u_new", Email: req.Email, Name: req.Name, Status: UserStatusInvited}, nil
 }

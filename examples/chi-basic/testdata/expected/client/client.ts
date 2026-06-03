@@ -74,20 +74,21 @@ export function createClient(opts: ClientOptions) {
   return {
     users: {
       /** Returns a single user by ID. */
-      get: async (params: { id: string }): Promise<t.User> => {
+      get: async (params: { id: string; include?: string }): Promise<t.User> => {
         const data = await request(opts, {
           method: "GET",
           path: `/users/${encodeURIComponent(params.id)}`,
+          query: { include: params.include },
         });
         return schemas.User.parse(data);
       },
 
       /** Returns a page of users. */
-      list: async (params: { limit?: number; cursor?: string }): Promise<t.ListUsersResponse> => {
+      list: async (params: { limit?: number; cursor?: string; active?: boolean; minScore?: number }): Promise<t.ListUsersResponse> => {
         const data = await request(opts, {
           method: "GET",
           path: `/users`,
-          query: { limit: params.limit, cursor: params.cursor },
+          query: { limit: params.limit, cursor: params.cursor, active: params.active, minScore: params.minScore },
         });
         return schemas.ListUsersResponse.parse(data);
       },

@@ -25,6 +25,8 @@ func Register(r *gin.Engine) {
 func handleGetUser(c *gin.Context) {
 	var req GetUserRequest
 	req.ID = c.Param("id")
+	q := c.Request.URL.Query()
+	req.Include = q.Get("include")
 	resp, err := GetUser(c.Request.Context(), req)
 	if err != nil {
 		goduct.WriteError(c.Writer, err)
@@ -45,6 +47,22 @@ func handleListUsers(c *gin.Context) {
 		req.Limit = n
 	}
 	req.Cursor = q.Get("cursor")
+	if v := q.Get("active"); v != "" {
+		n, err := strconv.ParseBool(v)
+		if err != nil {
+			goduct.WriteError(c.Writer, goduct.BadRequest("active must be a boolean"))
+			return
+		}
+		req.Active = n
+	}
+	if v := q.Get("minScore"); v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			goduct.WriteError(c.Writer, goduct.BadRequest("minScore must be a number"))
+			return
+		}
+		req.MinScore = n
+	}
 	resp, err := ListUsers(c.Request.Context(), req)
 	if err != nil {
 		goduct.WriteError(c.Writer, err)

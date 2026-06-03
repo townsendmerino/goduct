@@ -25,6 +25,8 @@ func Register(r chi.Router) {
 func handleGetUser(w http.ResponseWriter, r *http.Request) {
 	var req GetUserRequest
 	req.ID = chi.URLParam(r, "id")
+	q := r.URL.Query()
+	req.Include = q.Get("include")
 	resp, err := GetUser(r.Context(), req)
 	if err != nil {
 		goduct.WriteError(w, err)
@@ -45,6 +47,22 @@ func handleListUsers(w http.ResponseWriter, r *http.Request) {
 		req.Limit = n
 	}
 	req.Cursor = q.Get("cursor")
+	if v := q.Get("active"); v != "" {
+		n, err := strconv.ParseBool(v)
+		if err != nil {
+			goduct.WriteError(w, goduct.BadRequest("active must be a boolean"))
+			return
+		}
+		req.Active = n
+	}
+	if v := q.Get("minScore"); v != "" {
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			goduct.WriteError(w, goduct.BadRequest("minScore must be a number"))
+			return
+		}
+		req.MinScore = n
+	}
 	resp, err := ListUsers(r.Context(), req)
 	if err != nil {
 		goduct.WriteError(w, err)

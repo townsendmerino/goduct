@@ -437,3 +437,149 @@ func mkType(name string) ir.TypeDef {
 			Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}},
 	}
 }
+
+// TestGenerate_RequestExample covers ADR 0040 §2: a populated
+// Route.RequestExample becomes requestBody.content."application/
+// json".example as a parsed JSON value (not a string-quoted blob).
+// Coexists with the response-body example from ADR 0039.
+func TestGenerate_RequestExample(t *testing.T) {
+	api := &ir.API{
+		Routes: []ir.Route{{
+			HandlerName: "CreateThing", Method: "POST", Path: "/things", Tag: "things",
+			Mode:           ir.ModeIdiomatic,
+			RequestType:    &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			BodyType:       &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			ResponseType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Thing"},
+			SuccessStatus:  201,
+			RequestExample: `{"name":"Widget","qty":3}`,
+			Example:        `{"id":"t_1","name":"Widget"}`,
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.Req":   mkType("Req"),
+			"pkg.Thing": mkType("Thing"),
+		},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	var got struct {
+		Paths map[string]struct {
+			Post struct {
+				RequestBody struct {
+					Content map[string]struct {
+						Example map[string]any `json:"example"`
+					} `json:"content"`
+				} `json:"requestBody"`
+				Responses map[string]struct {
+					Content map[string]struct {
+						Example map[string]any `json:"example"`
+					} `json:"content"`
+				} `json:"responses"`
+			} `json:"post"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	post := got.Paths["/things"].Post
+	if reqEx := post.RequestBody.Content["application/json"].Example; reqEx["name"] != "Widget" {
+		t.Errorf("requestBody.example missing or wrong: %v", reqEx)
+	}
+	if respEx := post.Responses["201"].Content["application/json"].Example; respEx["id"] != "t_1" {
+		t.Errorf("response.example missing or wrong: %v", respEx)
+	}
+}
+
+// TestGenerate_RequestExampleMalformedJSON covers ADR 0040 §2
+// loud-fail symmetry with the response-side example.
+func TestGenerate_RequestExampleMalformedJSON(t *testing.T) {
+	api := &ir.API{
+		Routes: []ir.Route{{
+			HandlerName: "BadReq", Method: "POST", Path: "/x", Tag: "x",
+			Mode:           ir.ModeIdiomatic,
+			RequestType:    &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			BodyType:       &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			ResponseType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			SuccessStatus:  200,
+			RequestExample: `{not valid json}`,
+		}},
+		Types: map[string]ir.TypeDef{"pkg.Req": mkType("Req")},
+	}
+	var buf bytes.Buffer
+	err := Generate(api, &buf)
+	if err == nil || !strings.Contains(err.Error(), "BadReq") ||
+		!strings.Contains(err.Error(), "valid JSON") {
+		t.Errorf("expected loud-fail naming the handler, got: %v", err)
+	}
+}
+
+// TestGenerate_PerOperationSecurity covers ADR 0040 §1: per-handler
+// security overrides emit as operation.security. The `none` form
+// is an empty inner map (OpenAPI 3.1's explicit unauthenticated
+// override); a named scheme becomes a single-key map with empty
+// scopes; multiple entries compose as OR (array of length > 1).
+func TestGenerate_PerOperationSecurity(t *testing.T) {
+	api := &ir.API{
+		Routes: []ir.Route{
+			{
+				HandlerName: "Healthz", Method: "GET", Path: "/healthz", Tag: "system",
+				Mode:          ir.ModeIdiomatic,
+				RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+				ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+				SuccessStatus: 200,
+				Security:      []ir.SecurityRequirement{{}}, // `none`
+			},
+			{
+				HandlerName: "GetAccount", Method: "GET", Path: "/accounts/:id", Tag: "accounts",
+				Mode:          ir.ModeIdiomatic,
+				RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+				ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+				SuccessStatus: 200,
+				Security: []ir.SecurityRequirement{
+					{Schemes: []string{"bearerAuth"}},
+					{Schemes: []string{"apiKey"}},
+				},
+			},
+			{
+				HandlerName: "PlainOp", Method: "GET", Path: "/plain", Tag: "plain",
+				Mode:          ir.ModeIdiomatic,
+				RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+				ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+				SuccessStatus: 200,
+				// No Security: inherits document default.
+			},
+		},
+		Types: map[string]ir.TypeDef{"pkg.Req": mkType("Req")},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	var got struct {
+		Paths map[string]map[string]struct {
+			Security []map[string][]string `json:"security"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	healthz := got.Paths["/healthz"]["get"].Security
+	if len(healthz) != 1 || len(healthz[0]) != 0 {
+		t.Errorf("/healthz security should be [{}] (the `none` form), got %v", healthz)
+	}
+	acct := got.Paths["/accounts/{id}"]["get"].Security
+	if len(acct) != 2 {
+		t.Fatalf("/accounts/{id} security len = %d, want 2", len(acct))
+	}
+	if _, ok := acct[0]["bearerAuth"]; !ok {
+		t.Errorf("/accounts/{id} security[0] should have bearerAuth: %v", acct[0])
+	}
+	if _, ok := acct[1]["apiKey"]; !ok {
+		t.Errorf("/accounts/{id} security[1] should have apiKey: %v", acct[1])
+	}
+	plain := got.Paths["/plain"]["get"].Security
+	if plain != nil {
+		t.Errorf("/plain has no per-op security; should inherit (be absent), got %v", plain)
+	}
+}

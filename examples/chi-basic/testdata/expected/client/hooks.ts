@@ -20,7 +20,7 @@ type HookMutationOptions<TData, TVars> = Omit<
 export function createHooks(client: Client) {
   return {
     /** Returns a single user by ID. */
-    useGetUser: (params: { id: string }, opts?: HookQueryOptions<t.User>) =>
+    useGetUser: (params: { id: string; include?: string }, opts?: HookQueryOptions<t.User>) =>
       useQuery<t.User, GoductError>({
         ...opts,
         queryKey: ["users", "get", params],
@@ -29,7 +29,7 @@ export function createHooks(client: Client) {
 
     /** Returns a page of users. */
     useListUsers: (
-      params: { limit?: number; cursor?: string },
+      params: { limit?: number; cursor?: string; active?: boolean; minScore?: number },
       opts?: HookQueryOptions<t.ListUsersResponse>,
     ) =>
       useQuery<t.ListUsersResponse, GoductError>({

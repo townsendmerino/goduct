@@ -313,9 +313,7 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **Frontend:** TypeScript types, zod schemas, typed fetch client, React Query hooks ([ADR 0028](docs/decisions/0028-react-query-hooks-design.md); peer dep `@tanstack/react-query` v5).
 
-**Spec-trust caveats** — shipped and behaves per spec, but not yet exercised by the chi-basic golden (v0.2 adds coverage): the `url` and `len` validators; the typed client's combined path+query argument object; the Go adapter's `bool`/`float` query-param conversion.
-
-**Known v0.2 polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
+**Known polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
 
 **Generics:** `type Page[T any] struct{...}` and instantiations like `*Page[User]` work end-to-end ([ADR 0033](docs/decisions/0033-generics.md)). Multi-param (`Result[T, E]`) supported. v0.4 ([ADR 0036](docs/decisions/0036-constraint-generics.md)) accepts **type-union constraints** like `[T int | int64]` and renders them as `<T extends number>` (dedup applied) — method-bearing constraints (`Stringer`), `comparable`, and `~`-tilde forms still loud-fail. Generic enums/aliases and generic handler signatures themselves are out of scope.
 
@@ -337,7 +335,7 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 }
 ```
 
-**OpenAPI polish ([ADR 0039](docs/decisions/0039-openapi-polish-trio.md)):** `goduct:example {...}` on a handler attaches a real JSON example to its response body; `goduct:errorresponse <status> <Type>` declares per-status error response shapes; security schemes flow from `goduct.json` into `components.securitySchemes` plus the document-level `security` array.
+**OpenAPI polish ([ADR 0039](docs/decisions/0039-openapi-polish-trio.md), [ADR 0040](docs/decisions/0040-v04-closure-pass.md)):** `goduct:example {...}` attaches a real JSON example to a response body; `goduct:requestexample {...}` does the same for request bodies; `goduct:errorresponse <status> <Type>` declares per-status error response shapes; security schemes flow from `goduct.json` into `components.securitySchemes` plus a document-level `security` array; `goduct:security <scheme>` (or `goduct:security none`) on a handler overrides the document default for that operation.
 
 **Not yet supported (planned):** SSE/streaming; WebSockets; file upload helpers. See the [Roadmap](#roadmap).
 
@@ -377,7 +375,9 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.3** — Generics in request/response types, OpenAPI 3.1 export (`--openapi`), Swagger UI page (`--swagger-ui`), Postman collection (`--postman`).
 
-**v0.4** (this release) — Type-union generic constraints (`[T int | int64]` → `<T extends number>`), gin/echo raw `http.HandlerFunc` via context-bridge wrappers, `goduct.json` project config, OpenAPI polish trio (`goduct:example`, security schemes, `goduct:errorresponse`).
+**v0.4** — Type-union generic constraints (`[T int | int64]` → `<T extends number>`), gin/echo raw `http.HandlerFunc` via context-bridge wrappers, `goduct.json` project config, OpenAPI polish trio (`goduct:example`, security schemes, `goduct:errorresponse`).
+
+**v0.4.1** (this release) — Closure pass: `goduct:requestexample`, per-handler `goduct:security <scheme>` override, plus chi-basic coverage for the `url`/`len` validators, combined path+query argument object, and `bool`/`float` query-param conversion (the v0.2-era spec-trust caveats).
 
 **v0.5** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
 

@@ -22,6 +22,13 @@
                 "users",
                 ":id"
               ],
+              "query": [
+                {
+                  "key": "include",
+                  "value": "",
+                  "disabled": true
+                }
+              ],
               "variable": [
                 {
                   "key": "id",
@@ -55,6 +62,16 @@
                   "key": "cursor",
                   "value": "",
                   "disabled": true
+                },
+                {
+                  "key": "active",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "minScore",
+                  "value": "",
+                  "disabled": true
                 }
               ]
             },
@@ -68,7 +85,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\": \"\",\n  \"name\": \"\",\n  \"role\": \"\"\n}",
+              "raw": "{\n  \"email\": \"\",\n  \"name\": \"\",\n  \"role\": \"\",\n  \"website\": \"\",\n  \"referralCode\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

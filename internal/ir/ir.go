@@ -71,6 +71,14 @@ type ErrorResponse struct {
 	Type   *TypeRef
 }
 
+// SecurityRequirement is one OpenAPI operation-level security entry
+// (ADR 0040). Empty Schemes (length 0) represents the "none" form
+// — an explicit unauthenticated operation overriding the document
+// default.
+type SecurityRequirement struct {
+	Schemes []string
+}
+
 // Route is one HTTP endpoint.
 type Route struct {
 	// HandlerName is the Go function's identifier (e.g. "GetUser").
@@ -126,6 +134,24 @@ type Route struct {
 	// declare none. The OpenAPI generator emits each as an additional
 	// responses[<status>] entry.
 	ErrorResponses []ErrorResponse
+
+	// RequestExample is a raw JSON literal captured from a
+	// `goduct:requestexample` directive (ADR 0040). Empty when
+	// absent. Validated only at OpenAPI generate time; rendered as
+	// requestBody.content."application/json".example. No-op when the
+	// route has no body (GET/DELETE).
+	RequestExample string
+
+	// Security carries per-handler security requirements declared
+	// via `goduct:security <name>` / `goduct:security none`
+	// (ADR 0040). Each entry is one OpenAPI security requirement;
+	// multiple entries compose as OR. nil/empty means the operation
+	// inherits the document-level requirements from goduct.json
+	// (the v0.4 default). The single-entry `none` form is
+	// represented by SecurityRequirement{Schemes: nil} — an empty
+	// OpenAPI requirement object that flags the operation as
+	// explicitly unauthenticated.
+	Security []SecurityRequirement
 
 	// Tag groups routes in the generated client (e.g. all routes with
 	// tag "users" become api.users.*). Defaults to the first path segment.
