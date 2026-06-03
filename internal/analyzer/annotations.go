@@ -34,9 +34,30 @@ type Directives struct {
 	Request  string
 	Response string
 
+	// Example is the raw JSON literal from `goduct:example <json>`
+	// (ADR 0039). Empty when absent. Validated only at OpenAPI
+	// generate time, not here (this parser is content-agnostic).
+	Example string
+
+	// ErrorResponses captures each `goduct:errorresponse <status>
+	// <TypeName>` line (ADR 0039). Repeatable; duplicate-status
+	// detection lives here (two entries for the same status is a
+	// loud-fail).
+	ErrorResponses []ErrorResponseDirective
+
 	// Doc is the comment text with every goduct: line removed and
 	// surrounding whitespace trimmed. Interior blank lines are preserved.
 	Doc string
+}
+
+// ErrorResponseDirective is the parsed form of one
+// `goduct:errorresponse <status> <TypeName>` line (ADR 0039). The
+// type name is resolved against the handler's package scope by the
+// caller; this struct only carries the textual capture + the
+// validated status.
+type ErrorResponseDirective struct {
+	Status   int
+	TypeName string
 }
 
 // ParseDirectives extracts goduct directives from doc, which must be a
@@ -80,10 +101,15 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 	fail := func(msg string) error {
 		return fmt.Errorf("%s (line %d): %s", msg, line, src)
 	}
-	if seen[name] {
-		return fail("duplicate " + directivePrefix + name + " directive")
+	// errorresponse is repeatable (one per status), so it bypasses
+	// the seen-once guard; the case branch enforces "one entry per
+	// status" instead. Every other directive is single-shot.
+	if name != "errorresponse" {
+		if seen[name] {
+			return fail("duplicate " + directivePrefix + name + " directive")
+		}
+		seen[name] = true
 	}
-	seen[name] = true
 	switch name {
 	case "route":
 		f := strings.Fields(args)
@@ -126,6 +152,33 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 			return fail(err.Error())
 		}
 		d.Response = v
+	case "example":
+		// Whole-line capture: the JSON literal may contain spaces,
+		// quotes, and inner braces. args is everything after the
+		// directive name with leading whitespace trimmed.
+		if args == "" {
+			return fail("example requires a JSON-literal argument")
+		}
+		d.Example = args
+	case "errorresponse":
+		f := strings.Fields(args)
+		if len(f) != 2 {
+			return fail("malformed errorresponse, want `goduct:errorresponse STATUS TYPE`")
+		}
+		status, err := strconv.Atoi(f[0])
+		if err != nil {
+			return fail("errorresponse status must be an integer, got " + strconv.Quote(f[0]))
+		}
+		if status < 100 || status > 599 {
+			return fail("errorresponse status out of range [100,599], got " + strconv.Itoa(status))
+		}
+		for _, existing := range d.ErrorResponses {
+			if existing.Status == status {
+				return fail(fmt.Sprintf("duplicate errorresponse for status %d", status))
+			}
+		}
+		d.ErrorResponses = append(d.ErrorResponses,
+			ErrorResponseDirective{Status: status, TypeName: f[1]})
 	default:
 		return fail("unknown directive " + strconv.Quote(directivePrefix+name))
 	}

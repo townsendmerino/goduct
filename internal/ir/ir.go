@@ -49,6 +49,26 @@ type Meta struct {
 	OpenAPIVersion     string
 	OpenAPIDescription string
 	OpenAPIServers     []string
+
+	// Security carries goduct.json's "security.schemes" block
+	// verbatim (ADR 0039). Each value is the OpenAPI 3.1
+	// SecurityScheme shape — goduct does not validate the inner
+	// structure; it emits it as-is under components.securitySchemes.
+	Security map[string]any
+
+	// SecurityRequirements is the document-level "security" array
+	// (ADR 0039). Each map is one requirement entry, mapping a
+	// scheme name to the (typically empty) scopes list.
+	SecurityRequirements []map[string][]string
+}
+
+// ErrorResponse is one `goduct:errorresponse <status> <Type>`
+// declaration on a handler (ADR 0039). Type is always KindNamed —
+// the analyzer resolves the name against the handler's package
+// scope, same as goduct:request / goduct:response.
+type ErrorResponse struct {
+	Status int
+	Type   *TypeRef
 }
 
 // Route is one HTTP endpoint.
@@ -92,6 +112,20 @@ type Route struct {
 	// SuccessStatus is the HTTP status returned on a non-error result.
 	// Defaults to 200, or 201 for POST, or 204 when ResponseType is nil.
 	SuccessStatus int
+
+	// Example is a raw JSON literal captured from a `goduct:example`
+	// directive (ADR 0039). Empty when no example was declared. The
+	// OpenAPI generator parses this once when emitting the operation's
+	// success-response body; a malformed literal is a loud-fail at
+	// generate time.
+	Example string
+
+	// ErrorResponses lists per-status alternative response bodies
+	// declared via `goduct:errorresponse <status> <Type>` (ADR 0039).
+	// Order preserved in source order. nil/empty for handlers that
+	// declare none. The OpenAPI generator emits each as an additional
+	// responses[<status>] entry.
+	ErrorResponses []ErrorResponse
 
 	// Tag groups routes in the generated client (e.g. all routes with
 	// tag "users" become api.users.*). Defaults to the first path segment.

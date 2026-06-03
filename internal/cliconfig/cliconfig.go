@@ -35,6 +35,18 @@ type Config struct {
 	Generators []string          `json:"generators,omitempty"`
 	Adapters   map[string]string `json:"adapters,omitempty"`
 	OpenAPI    *OpenAPI          `json:"openapi,omitempty"`
+	Security   *Security         `json:"security,omitempty"`
+}
+
+// Security mirrors the goduct.json "security" block (ADR 0039 §2).
+// Schemes is pass-through `any` per scheme name — goduct emits each
+// entry as-is into components.securitySchemes; it does not validate
+// the inner OpenAPI-3.1 SecurityScheme shape. Requirements is the
+// top-level OpenAPI `security` array, each map naming a scheme and
+// listing scopes (typically empty for non-OAuth flows).
+type Security struct {
+	Schemes      map[string]any        `json:"schemes,omitempty"`
+	Requirements []map[string][]string `json:"requirements,omitempty"`
 }
 
 // OpenAPI is the project-metadata block consumed by the openapi

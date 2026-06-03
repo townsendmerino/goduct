@@ -48,8 +48,9 @@ type GetUserRequest struct {
 
 // GetUser returns a single user by ID.
 //
-// goduct:route GET /users/:id
-// goduct:tag   users
+// goduct:route   GET /users/:id
+// goduct:tag     users
+// goduct:example {"id":"u_1","email":"alice@example.com","name":"Alice","status":"active"}
 func GetUser(ctx context.Context, req GetUserRequest) (*User, error) {
 	if req.ID == "" {
 		return nil, goduct.BadRequest("id is required")

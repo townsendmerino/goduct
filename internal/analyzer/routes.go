@@ -198,10 +198,44 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		route.ResponseType = rRef
 	}
 
+	// ADR 0039: capture goduct:example verbatim and resolve each
+	// goduct:errorresponse <status> <Type> against the handler's
+	// package. Error-response types must be same-package named
+	// structs (same constraint as request/response per ADR 0014).
+	route.Example = dirs.Example
+	for _, er := range dirs.ErrorResponses {
+		erNamed, ok := lookupNamedInPkg(pkg, er.TypeName)
+		if !ok {
+			return fail("handler %s: goduct:errorresponse %d %s: type %s not found in package %s",
+				name, er.Status, er.TypeName, er.TypeName, pkg.Types.Path())
+		}
+		ref, err := namedRefWithArgs(erNamed)
+		if err != nil {
+			return fail("handler %s errorresponse %d: %v", name, er.Status, err)
+		}
+		route.ErrorResponses = append(route.ErrorResponses,
+			ir.ErrorResponse{Status: er.Status, Type: ref})
+	}
+
 	if err := checkPathParams(route); err != nil {
 		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)
 	}
 	return route, nil
+}
+
+// lookupNamedInPkg resolves an unqualified type name against the
+// handler's package scope and returns the *types.Named on success.
+// Returns ok=false when the name is not in scope or refers to a
+// non-named type. Used by ADR 0039's errorresponse and ADR 0031's
+// raw-mode request/response resolution shares this shape via the
+// same package lookup pattern.
+func lookupNamedInPkg(pkg *packages.Package, name string) (*types.Named, bool) {
+	obj := pkg.Types.Scope().Lookup(name)
+	if obj == nil {
+		return nil, false
+	}
+	named, ok := obj.Type().(*types.Named)
+	return named, ok
 }
 
 // resolveStatus implements the ADR-0014-faithful rule (confirmed with the

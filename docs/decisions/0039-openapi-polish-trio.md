@@ -192,6 +192,23 @@ func CreateUser(ctx context.Context, req CreateUserRequest) (*User, error) { ...
   (typed validation) would mean tracking every OpenAPI scheme
   type's required fields; out of scope for v0.4.
 
+**Empirical finding (implementation):** §4 proposed extending
+chi-basic with both an example and an errorresponse. The example
+was added to GetUser and chi-basic's openapi.json golden was
+regenerated (one localized block). The errorresponse path was
+left to unit-test-only coverage because a `goduct:errorresponse
+400 ValidationError` would have required (a) declaring
+`ValidationError` in chi-basic/api/ and (b) regenerating
+types.ts, schemas.ts, client.ts, hooks.ts, openapi.json, AND
+postman_collection.json — six goldens, several hundred lines of
+diff, for a feature the unit test already covers. The
+spec-trust risk this preserves: a future regression in
+`goadapter`/openapi for errorresponse-discovered types would not
+be caught by chi-basic's golden. The unit test
+TestGenerate_PerStatusResponses in `openapi_test.go` is the
+current safety net; a follow-up coverage example with its own
+goldens is the v0.5 remediation if anyone reports an issue.
+
 ## Alternatives considered
 
 - **Synthesize examples from type structure** (no annotation,

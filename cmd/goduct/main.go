@@ -254,20 +254,26 @@ type runRequest struct {
 	meta     ir.Meta           // ADR 0038: stamped onto api.Meta after Analyze
 }
 
-// metaFromConfig translates the goduct.json "openapi" block into
-// the ir.Meta the openapi generator reads (ADR 0038 §5). Returns
-// the zero value when cfg is nil or has no openapi block — the
+// metaFromConfig translates the goduct.json "openapi" and "security"
+// blocks into the ir.Meta the openapi generator reads (ADRs 0038
+// §5, 0039 §2). Returns the zero value when cfg is nil — the
 // generator then falls back to its built-in defaults.
 func metaFromConfig(cfg *cliconfig.Config) ir.Meta {
-	if cfg == nil || cfg.OpenAPI == nil {
+	if cfg == nil {
 		return ir.Meta{}
 	}
-	return ir.Meta{
-		OpenAPITitle:       cfg.OpenAPI.Title,
-		OpenAPIVersion:     cfg.OpenAPI.Version,
-		OpenAPIDescription: cfg.OpenAPI.Description,
-		OpenAPIServers:     cfg.OpenAPI.Servers,
+	var m ir.Meta
+	if cfg.OpenAPI != nil {
+		m.OpenAPITitle = cfg.OpenAPI.Title
+		m.OpenAPIVersion = cfg.OpenAPI.Version
+		m.OpenAPIDescription = cfg.OpenAPI.Description
+		m.OpenAPIServers = cfg.OpenAPI.Servers
 	}
+	if cfg.Security != nil {
+		m.Security = cfg.Security.Schemes
+		m.SecurityRequirements = cfg.Security.Requirements
+	}
+	return m
 }
 
 // generateOnce runs analyze + render-to-memory + write for one regen.

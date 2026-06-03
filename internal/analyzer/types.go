@@ -84,6 +84,20 @@ func DiscoverTypes(pkg *packages.Package, routes []ir.Route) (map[string]ir.Type
 				add(x)
 			}
 		}
+		// ADR 0039: error-response types are reachable seeds — without
+		// this, a type declared only via goduct:errorresponse would
+		// never enter api.Types and the openapi generator would render
+		// a dangling $ref.
+		for _, er := range r.ErrorResponses {
+			if er.Type == nil {
+				continue
+			}
+			var d []string
+			collectNamedDeps(*er.Type, &d)
+			for _, x := range d {
+				add(x)
+			}
+		}
 	}
 
 	for _, s := range seeds {

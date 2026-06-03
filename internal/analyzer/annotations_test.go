@@ -163,3 +163,80 @@ func TestParseDirectives_Errors(t *testing.T) {
 		})
 	}
 }
+
+// TestParseDirectives_Example_Errorresponse covers the v0.4 OpenAPI
+// polish directives (ADR 0039): example captures the rest-of-line
+// verbatim, errorresponse is the only repeatable directive, and
+// duplicate-status / out-of-range / malformed cases loud-fail.
+func TestParseDirectives_Example_Errorresponse(t *testing.T) {
+	t.Run("example captures the JSON literal verbatim", func(t *testing.T) {
+		const j = `{"id":"u-1","name":"Alice","tags":["admin","beta"]}`
+		d, err := ParseDirectives("goduct:route GET /a\ngoduct:example " + j)
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if d.Example != j {
+			t.Errorf("Example = %q, want %q", d.Example, j)
+		}
+	})
+	t.Run("example without argument is a loud-fail", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route GET /a\ngoduct:example")
+		if err == nil || !strings.Contains(err.Error(), "JSON-literal") {
+			t.Errorf("expected JSON-literal error, got %v", err)
+		}
+	})
+	t.Run("duplicate example loud-fails (single-shot)", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route GET /a\ngoduct:example {}\ngoduct:example []")
+		if err == nil || !strings.Contains(err.Error(), "duplicate goduct:example") {
+			t.Errorf("expected duplicate example error, got %v", err)
+		}
+	})
+	t.Run("errorresponse parses status + type", func(t *testing.T) {
+		d, err := ParseDirectives(
+			"goduct:route POST /a\n" +
+				"goduct:errorresponse 400 ValidationError\n" +
+				"goduct:errorresponse 409 ConflictError")
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if len(d.ErrorResponses) != 2 {
+			t.Fatalf("ErrorResponses len = %d, want 2", len(d.ErrorResponses))
+		}
+		if d.ErrorResponses[0].Status != 400 || d.ErrorResponses[0].TypeName != "ValidationError" {
+			t.Errorf("ErrorResponses[0] = %+v", d.ErrorResponses[0])
+		}
+		if d.ErrorResponses[1].Status != 409 || d.ErrorResponses[1].TypeName != "ConflictError" {
+			t.Errorf("ErrorResponses[1] = %+v", d.ErrorResponses[1])
+		}
+	})
+	t.Run("duplicate status across errorresponses loud-fails", func(t *testing.T) {
+		_, err := ParseDirectives(
+			"goduct:route POST /a\n" +
+				"goduct:errorresponse 400 A\n" +
+				"goduct:errorresponse 400 B")
+		if err == nil || !strings.Contains(err.Error(), "duplicate errorresponse for status 400") {
+			t.Errorf("expected duplicate-status error, got %v", err)
+		}
+	})
+	t.Run("errorresponse status out of range loud-fails", func(t *testing.T) {
+		for _, bad := range []string{"99", "600", "0", "-1"} {
+			_, err := ParseDirectives(
+				"goduct:route GET /a\ngoduct:errorresponse " + bad + " ErrType")
+			if err == nil || !strings.Contains(err.Error(), "out of range") {
+				t.Errorf("status %q expected out-of-range error, got %v", bad, err)
+			}
+		}
+	})
+	t.Run("errorresponse malformed (missing type)", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route GET /a\ngoduct:errorresponse 400")
+		if err == nil || !strings.Contains(err.Error(), "malformed errorresponse") {
+			t.Errorf("expected malformed-errorresponse error, got %v", err)
+		}
+	})
+	t.Run("errorresponse status non-integer", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route GET /a\ngoduct:errorresponse fourhundred ErrType")
+		if err == nil || !strings.Contains(err.Error(), "must be an integer") {
+			t.Errorf("expected integer error, got %v", err)
+		}
+	})
+}

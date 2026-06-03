@@ -317,3 +317,123 @@ func TestGenerate_MetaPartial_DefaultsRetained(t *testing.T) {
 		t.Errorf("document.servers should be absent when empty, got %v", got.Servers)
 	}
 }
+
+// TestGenerate_ExampleMalformedJSON covers ADR 0039 §1 loud-fail:
+// an example that isn't valid JSON fails at generate time with
+// the offending handler named.
+func TestGenerate_ExampleMalformedJSON(t *testing.T) {
+	api := &ir.API{
+		Routes: []ir.Route{{
+			HandlerName: "BadExample", Method: "GET", Path: "/x", Tag: "x",
+			Mode:          ir.ModeIdiomatic,
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.R"},
+			ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.R"},
+			SuccessStatus: 200,
+			Example:       `{not valid json}`,
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.R": {QualifiedName: "pkg.R", Name: "R", Kind: ir.TypeStruct,
+				Fields: []ir.Field{{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}}},
+		},
+	}
+	var buf bytes.Buffer
+	err := Generate(api, &buf)
+	if err == nil {
+		t.Fatal("expected loud-fail for malformed example, got nil")
+	}
+	if !strings.Contains(err.Error(), "BadExample") || !strings.Contains(err.Error(), "valid JSON") {
+		t.Errorf("error should name the handler and mention valid JSON, got: %v", err)
+	}
+}
+
+// TestGenerate_PerStatusResponses covers ADR 0039 §3: each
+// errorresponse entry surfaces as responses["<status>"] with a
+// schema $ref to the named type. The default GoductError response
+// stays in place for statuses the route doesn't override.
+func TestGenerate_PerStatusResponses(t *testing.T) {
+	api := &ir.API{
+		Routes: []ir.Route{{
+			HandlerName: "CreateThing", Method: "POST", Path: "/things", Tag: "things",
+			Mode:          ir.ModeIdiomatic,
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			BodyType:      &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Thing"},
+			SuccessStatus: 201,
+			ErrorResponses: []ir.ErrorResponse{
+				{Status: 400, Type: &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ValidationError"}},
+				{Status: 409, Type: &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ConflictError"}},
+			},
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.Req":             mkType("Req"),
+			"pkg.Thing":           mkType("Thing"),
+			"pkg.ValidationError": mkType("ValidationError"),
+			"pkg.ConflictError":   mkType("ConflictError"),
+		},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		`"400"`, `"409"`, `"default"`,
+		`"$ref": "#/components/schemas/ValidationError"`,
+		`"$ref": "#/components/schemas/ConflictError"`,
+		`"$ref": "#/components/schemas/GoductError"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+}
+
+// TestGenerate_SecuritySchemesAndRequirements covers ADR 0039 §2:
+// the Meta.Security map flows as-is to components.securitySchemes
+// and Meta.SecurityRequirements becomes the top-level `security`.
+func TestGenerate_SecuritySchemesAndRequirements(t *testing.T) {
+	root := repoRoot(t)
+	api, err := analyzer.Analyze([]string{"./examples/chi-basic/api"},
+		analyzer.LoadOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	api.Meta = ir.Meta{
+		Security: map[string]any{
+			"bearerAuth": map[string]any{
+				"type": "http", "scheme": "bearer", "bearerFormat": "JWT",
+			},
+		},
+		SecurityRequirements: []map[string][]string{
+			{"bearerAuth": {}},
+		},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	var got struct {
+		Security   []map[string][]string `json:"security"`
+		Components struct {
+			SecuritySchemes map[string]any `json:"securitySchemes"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got.Security) != 1 || got.Security[0]["bearerAuth"] == nil {
+		t.Errorf("document.security missing bearerAuth requirement: %v", got.Security)
+	}
+	if got.Components.SecuritySchemes["bearerAuth"] == nil {
+		t.Errorf("components.securitySchemes missing bearerAuth: %v", got.Components.SecuritySchemes)
+	}
+}
+
+func mkType(name string) ir.TypeDef {
+	return ir.TypeDef{
+		QualifiedName: "pkg." + name, Name: name, Kind: ir.TypeStruct,
+		Fields: []ir.Field{{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+			Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}},
+	}
+}

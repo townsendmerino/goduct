@@ -42,6 +42,10 @@ func Generate(api *ir.API, w io.Writer) error {
 	if version == "" {
 		version = "0.0.0"
 	}
+	paths, err := buildPaths(api)
+	if err != nil {
+		return err
+	}
 	doc := document{
 		OpenAPI: "3.1.0",
 		Info: info{
@@ -49,11 +53,18 @@ func Generate(api *ir.API, w io.Writer) error {
 			Version:     version,
 			Description: api.Meta.OpenAPIDescription,
 		},
-		Paths:      buildPaths(api),
+		Paths:      paths,
 		Components: components{Schemas: buildSchemas(api)},
 	}
 	for _, url := range api.Meta.OpenAPIServers {
 		doc.Servers = append(doc.Servers, server{URL: url})
+	}
+	// ADR 0039: security schemes + document-level requirements.
+	if len(api.Meta.Security) > 0 {
+		doc.Components.SecuritySchemes = api.Meta.Security
+	}
+	if len(api.Meta.SecurityRequirements) > 0 {
+		doc.Security = api.Meta.SecurityRequirements
 	}
 
 	var compact bytes.Buffer
@@ -66,8 +77,8 @@ func Generate(api *ir.API, w io.Writer) error {
 	if err := json.Indent(&pretty, compact.Bytes(), "", "  "); err != nil {
 		return fmt.Errorf("openapi: indent: %w", err)
 	}
-	_, err := w.Write(pretty.Bytes())
-	return err
+	_, werr := w.Write(pretty.Bytes())
+	return werr
 }
 
 // ----------------------------------------------------------------
@@ -75,11 +86,12 @@ func Generate(api *ir.API, w io.Writer) error {
 // ----------------------------------------------------------------
 
 type document struct {
-	OpenAPI    string               `json:"openapi"`
-	Info       info                 `json:"info"`
-	Servers    []server             `json:"servers,omitempty"`
-	Paths      map[string]*pathItem `json:"paths"`
-	Components components           `json:"components"`
+	OpenAPI    string                  `json:"openapi"`
+	Info       info                    `json:"info"`
+	Servers    []server                `json:"servers,omitempty"`
+	Paths      map[string]*pathItem    `json:"paths"`
+	Components components              `json:"components"`
+	Security   []map[string][]string   `json:"security,omitempty"`
 }
 
 type info struct {
@@ -135,11 +147,13 @@ type response struct {
 }
 
 type mediaType struct {
-	Schema map[string]any `json:"schema"`
+	Schema  map[string]any `json:"schema"`
+	Example any            `json:"example,omitempty"`
 }
 
 type components struct {
-	Schemas map[string]any `json:"schemas"`
+	Schemas         map[string]any `json:"schemas"`
+	SecuritySchemes map[string]any `json:"securitySchemes,omitempty"`
 }
 
 // orderedProps preserves source-declaration order of schema
@@ -178,7 +192,7 @@ func (o orderedProps) MarshalJSON() ([]byte, error) {
 // Paths + operations
 // ----------------------------------------------------------------
 
-func buildPaths(api *ir.API) map[string]*pathItem {
+func buildPaths(api *ir.API) (map[string]*pathItem, error) {
 	out := map[string]*pathItem{}
 	for _, r := range api.Routes {
 		p := pathConvert(r.Path)
@@ -187,9 +201,13 @@ func buildPaths(api *ir.API) map[string]*pathItem {
 			item = &pathItem{}
 			out[p] = item
 		}
-		setMethod(item, r.Method, buildOperation(api, r))
+		op, err := buildOperation(api, r)
+		if err != nil {
+			return nil, err
+		}
+		setMethod(item, r.Method, op)
 	}
-	return out
+	return out, nil
 }
 
 // pathConvert converts goduct's :name path params to OpenAPI's {name}
@@ -230,7 +248,7 @@ func setMethod(p *pathItem, m string, op *operation) {
 	}
 }
 
-func buildOperation(api *ir.API, r ir.Route) *operation {
+func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 	op := &operation{
 		OperationID: r.HandlerName,
 		Tags:        []string{r.Tag},
@@ -276,11 +294,21 @@ func buildOperation(api *ir.API, r ir.Route) *operation {
 	op.Responses = map[string]*response{}
 	key := fmt.Sprintf("%d", r.SuccessStatus)
 	if r.ResponseType != nil {
+		mt := &mediaType{Schema: schemaForRef(api, *r.ResponseType)}
+		// ADR 0039: attach goduct:example to the success response body.
+		// Parse once into `any` so the JSON encoder emits the value
+		// rather than a string-quoted blob.
+		if r.Example != "" {
+			var ex any
+			if err := json.Unmarshal([]byte(r.Example), &ex); err != nil {
+				return nil, fmt.Errorf("openapi: handler %s: goduct:example is not valid JSON: %w",
+					r.HandlerName, err)
+			}
+			mt.Example = ex
+		}
 		op.Responses[key] = &response{
 			Description: "OK",
-			Content: map[string]*mediaType{
-				"application/json": {Schema: schemaForRef(api, *r.ResponseType)},
-			},
+			Content:     map[string]*mediaType{"application/json": mt},
 		}
 	} else {
 		desc := "OK"
@@ -288,6 +316,21 @@ func buildOperation(api *ir.API, r ir.Route) *operation {
 			desc = "No Content"
 		}
 		op.Responses[key] = &response{Description: desc}
+	}
+	// ADR 0039: emit per-status error responses declared via
+	// goduct:errorresponse. Each takes precedence over the synthesized
+	// `default` for that specific status (the default still applies to
+	// any status the route doesn't explicitly declare).
+	for _, er := range r.ErrorResponses {
+		if er.Type == nil {
+			continue
+		}
+		op.Responses[fmt.Sprintf("%d", er.Status)] = &response{
+			Description: "Error",
+			Content: map[string]*mediaType{
+				"application/json": {Schema: schemaForRef(api, *er.Type)},
+			},
+		}
 	}
 	op.Responses["default"] = &response{
 		Description: "Error",
@@ -297,7 +340,7 @@ func buildOperation(api *ir.API, r ir.Route) *operation {
 			}},
 		},
 	}
-	return op
+	return op, nil
 }
 
 // ----------------------------------------------------------------
