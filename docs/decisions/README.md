@@ -85,3 +85,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0039](0039-openapi-polish-trio.md) | OpenAPI polish trio: examples, security schemes, per-status responses (v0.4) | Accepted |
 | [0040](0040-v04-closure-pass.md) | v0.4.1 closure pass: deferred items + lingering v0.2 spec-trust (v0.4.1) | Accepted |
 | [0041](0041-sse-streaming.md) | SSE streaming responses (v0.5) | Accepted |
+| [0042](0042-file-uploads.md) | File uploads — typed multipart + raw-mode extension (v0.6) | Accepted |
