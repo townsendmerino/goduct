@@ -88,3 +88,4 @@ Brief — one line each is fine. What we didn't pick and why.
 | [0042](0042-file-uploads.md) | File uploads — typed multipart + raw-mode extension (v0.6) | Accepted |
 | [0043](0043-v06-closure-pass.md) | v0.6.1 closure pass: chi-basic SSE demo + upload polish (v0.6.1) | Accepted |
 | [0044](0044-websocket-bridge.md) | WebSocket bridge — typed full-duplex on coder/websocket (v0.7) | Accepted |
+| [0045](0045-v06-closure-plus-doctor.md) | v0.6.1 closure pass — WebSocket polish + goduct doctor (v0.6.1) | Accepted |
