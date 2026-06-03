@@ -153,7 +153,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-goduct cannot verify these annotations match the handler's behavior, so this mode is intended for when you need it, not as the default. Supported with `--framework chi` (default) and `--framework mux`; gin and echo loud-fail on raw routes in v0.2.
+goduct cannot verify these annotations match the handler's behavior, so this mode is intended for when you need it, not as the default. v0.4 supports raw routes on every framework: chi/mux register the user's `http.HandlerFunc` directly; gin/echo register a generated context-bridge wrapper per [ADR 0037](docs/decisions/0037-gin-echo-raw-handlerfunc.md).
 
 ---
 
@@ -233,7 +233,7 @@ A `Register(...)` function that wires every handler to the right route, decodes 
 goduct gen ./api --out ./web/src/api --go-adapter --framework gin
 ```
 
-Generated output imports the chosen framework (or stdlib for mux on Go 1.22+) and uses its native handler shape. Raw `http.HandlerFunc` handlers ([ADR 0031](docs/decisions/0031-raw-handlerfunc-mode.md)) work with `chi` and `mux`; gin and echo loud-fail on raw routes in v0.2.
+Generated output imports the chosen framework (or stdlib for mux on Go 1.22+) and uses its native handler shape. Raw `http.HandlerFunc` handlers ([ADR 0031](docs/decisions/0031-raw-handlerfunc-mode.md)) work on every framework: chi/mux register the user's function directly; gin/echo register a generated 3-line context-bridge wrapper ([ADR 0037](docs/decisions/0037-gin-echo-raw-handlerfunc.md)).
 
 ## `--watch`
 
@@ -317,9 +317,29 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **Known v0.2 polish:** a struct reachable only via a `type A B` alias emits as a duplicate interface rather than a TS alias; the Go adapter maps the 200/201/204 status codes the v0.1 analyzer produces (an explicit non-standard `goduct:status` loud-fails per [ADR 0007](docs/decisions/0007-loud-failure-on-unsupported-input.md)).
 
-**Generics:** `type Page[T any] struct{...}` and instantiations like `*Page[User]` work end-to-end ([ADR 0033](docs/decisions/0033-generics.md)). Multi-param (`Result[T, E]`) supported. Type-param constraints are `any`-only in v0.3; non-`any` constraints loud-fail. Generic enums/aliases and generic handler signatures themselves are out of scope.
+**Generics:** `type Page[T any] struct{...}` and instantiations like `*Page[User]` work end-to-end ([ADR 0033](docs/decisions/0033-generics.md)). Multi-param (`Result[T, E]`) supported. v0.4 ([ADR 0036](docs/decisions/0036-constraint-generics.md)) accepts **type-union constraints** like `[T int | int64]` and renders them as `<T extends number>` (dedup applied) — method-bearing constraints (`Stringer`), `comparable`, and `~`-tilde forms still loud-fail. Generic enums/aliases and generic handler signatures themselves are out of scope.
 
-**Not yet supported (planned):** SSE/streaming; WebSockets; gRPC bridging. See the [Roadmap](#roadmap).
+**Raw HandlerFunc on every framework:** `func(w, r)` handlers with `goduct:request`/`goduct:response` annotations now work on all four frameworks. chi/mux register the user's function directly; gin/echo register a generated 3-line context-bridge wrapper ([ADR 0037](docs/decisions/0037-gin-echo-raw-handlerfunc.md)).
+
+**Project config (`goduct.json`):** drop a `goduct.json` at the project root to stop repeating flags ([ADR 0038](docs/decisions/0038-project-config-file.md)). Schema mirrors the CLI 1:1 plus an `openapi` block (title/version/description/servers) and a `security` block. CLI flags override config; config overrides built-in defaults. Unknown keys loud-fail.
+
+```json
+{
+  "pattern":    "./api",
+  "out":        "./web/src/api",
+  "generators": ["types", "zod", "client", "hooks", "go-adapter"],
+  "framework":  "chi",
+  "openapi":    {"title": "My API", "version": "1.0.0"},
+  "security":   {
+    "schemes":      {"bearerAuth": {"type": "http", "scheme": "bearer"}},
+    "requirements": [{"bearerAuth": []}]
+  }
+}
+```
+
+**OpenAPI polish ([ADR 0039](docs/decisions/0039-openapi-polish-trio.md)):** `goduct:example {...}` on a handler attaches a real JSON example to its response body; `goduct:errorresponse <status> <Type>` declares per-status error response shapes; security schemes flow from `goduct.json` into `components.securitySchemes` plus the document-level `security` array.
+
+**Not yet supported (planned):** SSE/streaming; WebSockets; file upload helpers. See the [Roadmap](#roadmap).
 
 ---
 
@@ -355,9 +375,11 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.2** — React Query hooks (`--hooks`), gin + echo + std `net/http` mux adapters (`--framework`), raw `http.HandlerFunc` mode, the `oneof` validator, `--watch` mode, custom type adapters (`--adapter`, e.g. `decimal.Decimal` → `string`).
 
-**v0.3** (this release) — Generics in request/response types, OpenAPI 3.1 export (`--openapi`), Swagger UI page (`--swagger-ui`), Postman collection (`--postman`).
+**v0.3** — Generics in request/response types, OpenAPI 3.1 export (`--openapi`), Swagger UI page (`--swagger-ui`), Postman collection (`--postman`).
 
-**v0.4** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
+**v0.4** (this release) — Type-union generic constraints (`[T int | int64]` → `<T extends number>`), gin/echo raw `http.HandlerFunc` via context-bridge wrappers, `goduct.json` project config, OpenAPI polish trio (`goduct:example`, security schemes, `goduct:errorresponse`).
+
+**v0.5** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
 
 **Maybe** — Swift client, Kotlin client, Python client. These follow the same pattern: implement a `Generator`, consume the IR.
 
