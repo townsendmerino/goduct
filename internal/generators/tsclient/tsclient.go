@@ -28,6 +28,13 @@ const scaffold = `export interface ClientOptions {
   fetch?: typeof fetch;
   /** Returns headers to attach to every request (e.g. auth). */
   headers?: () => Record<string, string> | Promise<Record<string, string>>;
+  /**
+   * WebSocket options. When reconnect is true, every WSConnection
+   * created via this client auto-reconnects with exponential
+   * backoff (1s/2s/4s/8s/16s, capped at 30s), buffering .send()
+   * calls during the disconnect interval. Per ADR 0045 §3.
+   */
+  websocket?: { reconnect?: boolean };
 }
 
 export class GoductError extends Error {
@@ -180,14 +187,42 @@ func hasWebSocket(api *ir.API) bool {
 // and returns a WSConnection.
 const wsScaffold = `
 
+export interface WSConnectionOptions {
+  /** Subprotocol(s) to negotiate. Per ADR 0045 §1. */
+  protocols?: string | string[];
+  /**
+   * When true, transparently reconnect on close/error with
+   * exponential backoff (1s, 2s, 4s, 8s, 16s, capped at 30s).
+   * Calls to .send during the disconnect interval are buffered
+   * and flushed on reconnect. Per ADR 0045 §3.
+   */
+  reconnect?: boolean;
+}
+
 export class WSConnection<S, C> {
-  private ws: WebSocket;
+  private ws!: WebSocket;
   private queue: S[] = [];
   private waiters: ((v: IteratorResult<S>) => void)[] = [];
   private closed = false;
+  private explicitClose = false;
+  private buffered: C[] = [];
+  private attempt = 0;
 
-  constructor(url: string) {
-    this.ws = new WebSocket(url);
+  constructor(
+    private url: string,
+    private wsOpts: WSConnectionOptions = {},
+  ) {
+    this.connect();
+  }
+
+  private connect(): void {
+    this.ws = new WebSocket(this.url, this.wsOpts.protocols as any);
+    this.ws.onopen = () => {
+      this.attempt = 0;
+      while (this.buffered.length > 0) {
+        this.ws.send(JSON.stringify(this.buffered.shift()));
+      }
+    };
     this.ws.onmessage = (ev) => {
       const data = JSON.parse(typeof ev.data === "string" ? ev.data : "") as S;
       const w = this.waiters.shift();
@@ -195,14 +230,28 @@ export class WSConnection<S, C> {
       else this.queue.push(data);
     };
     this.ws.onclose = () => {
-      this.closed = true;
-      for (const w of this.waiters) w({ value: undefined as never, done: true });
-      this.waiters = [];
+      if (this.explicitClose || !this.wsOpts.reconnect) {
+        this.closed = true;
+        for (const w of this.waiters) w({ value: undefined as never, done: true });
+        this.waiters = [];
+        return;
+      }
+      const delay = Math.min(30000, 1000 * Math.pow(2, this.attempt++));
+      setTimeout(() => this.connect(), delay);
+    };
+    this.ws.onerror = () => {
+      // close handler runs next; backoff happens there.
     };
   }
 
   send(msg: C): void {
-    this.ws.send(JSON.stringify(msg));
+    if (this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    } else if (this.wsOpts.reconnect && !this.explicitClose) {
+      this.buffered.push(msg);
+    } else {
+      this.ws.send(JSON.stringify(msg)); // let the browser raise
+    }
   }
 
   async *messages(): AsyncIterable<S> {
@@ -221,11 +270,19 @@ export class WSConnection<S, C> {
   }
 
   close(code?: number, reason?: string): void {
+    this.explicitClose = true;
     this.ws.close(code, reason);
   }
 }
 
-function connectWS<S, C>(opts: ClientOptions, r: { path: string; query?: Record<string, string | number | boolean | undefined> }): WSConnection<S, C> {
+function connectWS<S, C>(
+  opts: ClientOptions,
+  r: {
+    path: string;
+    query?: Record<string, string | number | boolean | undefined>;
+    protocols?: string | string[];
+  },
+): WSConnection<S, C> {
   let url = opts.baseUrl + r.path;
   if (r.query) {
     const usp = new URLSearchParams();
@@ -239,7 +296,10 @@ function connectWS<S, C>(opts: ClientOptions, r: { path: string; query?: Record<
   // scheme) inherit the page's scheme via window.location at runtime;
   // we just leave them alone here.
   url = url.replace(/^http(s?):/, "ws$1:");
-  return new WSConnection<S, C>(url);
+  return new WSConnection<S, C>(url, {
+    protocols: r.protocols,
+    reconnect: opts.websocket?.reconnect,
+  });
 }
 `
 
@@ -297,6 +357,8 @@ func renderMethod(r ir.Route, api *ir.API) string {
 	// ADR 0044: WebSocket routes return a WSConnection<Send, Recv>
 	// from the connectWS scaffold helper. No body / response parsing
 	// — the user calls .send + iterates .messages() on their own.
+	// ADR 0045 §1: subprotocols thread through as the `protocols`
+	// field on the connectWS arg (verbatim from the IR).
 	if r.WebSocket != nil {
 		send := tsTypeRef(*r.WebSocket.Send)
 		recv := tsTypeRef(*r.WebSocket.Recv)
@@ -311,6 +373,13 @@ func renderMethod(r ir.Route, api *ir.API) string {
 				parts[i] = q.WireName + ": params." + q.WireName
 			}
 			b.WriteString("          query: { " + strings.Join(parts, ", ") + " },\n")
+		}
+		if len(r.WebSocketSubprotocols) > 0 {
+			parts := make([]string, len(r.WebSocketSubprotocols))
+			for i, p := range r.WebSocketSubprotocols {
+				parts[i] = `"` + p + `"`
+			}
+			b.WriteString("          protocols: [" + strings.Join(parts, ", ") + "],\n")
 		}
 		b.WriteString("        }),")
 		return b.String()

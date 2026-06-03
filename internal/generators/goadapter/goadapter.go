@@ -373,7 +373,7 @@ func wrapper(fw *framework, rt ir.Route, api *ir.API) string {
 	// the connection via coder/websocket.Accept, construct a typed
 	// goduct.WSConn, then call the user's handler.
 	if rt.WebSocket != nil {
-		return wsWrapper(fw, rt)
+		return wsWrapper(fw, rt, api)
 	}
 	// ADR 0041: streaming routes take a different code path —
 	// no body decode (streaming is always GET), no JSON response
@@ -578,7 +578,7 @@ func uploadParseBlock(fw *framework, goName, wire, reqExpr, parse, want string, 
 // already happened; we can't write an HTTP response after). CloseNow
 // on defer guarantees cleanup if the handler returns without
 // explicitly closing.
-func wsWrapper(fw *framework, rt ir.Route) string {
+func wsWrapper(fw *framework, rt ir.Route, api *ir.API) string {
 	reqType := requestTypeName(rt)
 	sendName := shortName(rt.WebSocket.Send.Named)
 	recvName := shortName(rt.WebSocket.Recv.Named)
@@ -598,12 +598,30 @@ func wsWrapper(fw *framework, rt ir.Route) string {
 			b.WriteString(queryAssign(fw, p))
 		}
 	}
-	b.WriteString("\tc, err := websocket.Accept(" + fw.writerExpr + ", " + rawRequestExpr(fw) + ", nil)\n")
+	// ADR 0045 §1: subprotocols thread through &websocket.AcceptOptions{Subprotocols}.
+	// nil when empty so the v0.6 byte output stays identical.
+	acceptOpts := "nil"
+	if len(rt.WebSocketSubprotocols) > 0 {
+		parts := make([]string, len(rt.WebSocketSubprotocols))
+		for i, p := range rt.WebSocketSubprotocols {
+			parts[i] = `"` + p + `"`
+		}
+		acceptOpts = "&websocket.AcceptOptions{Subprotocols: []string{" + strings.Join(parts, ", ") + "}}"
+	}
+	b.WriteString("\tc, err := websocket.Accept(" + fw.writerExpr + ", " + rawRequestExpr(fw) + ", " + acceptOpts + ")\n")
 	b.WriteString("\tif err != nil {\n\t\tgoduct.WriteError(" + fw.writerExpr +
 		", goduct.BadRequest(\"websocket accept failed\"))\n\t\t" + fw.earlyReturn + "\n\t}\n")
 	b.WriteString("\tdefer c.CloseNow()\n")
+	// ADR 0045 §2: api.Meta.WebSocketPingInterval (when non-zero)
+	// becomes a goduct.WithPingInterval option on NewWSConn. Baked
+	// into the generated wrapper at codegen time.
+	connArgs := "c"
+	if api.Meta.WebSocketPingInterval > 0 {
+		connArgs = "c, goduct.WithPingInterval(" +
+			strconv.FormatInt(int64(api.Meta.WebSocketPingInterval), 10) + ")"
+	}
 	b.WriteString("\t_ = " + rt.HandlerName + "(" + fw.ctxExpr + ", req, goduct.NewWSConn[" +
-		sendName + ", " + recvName + "](c))\n")
+		sendName + ", " + recvName + "](" + connArgs + "))\n")
 	b.WriteString(fw.finalReturn)
 	b.WriteString("}")
 	return b.String()

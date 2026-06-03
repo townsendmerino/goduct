@@ -3,6 +3,8 @@
 // holds the project together: change it carefully.
 package ir
 
+import "time"
+
 // API is the top-level result of analyzing a Go package (or set of packages).
 type API struct {
 	// Routes is every handler the analyzer found, in source order.
@@ -67,6 +69,13 @@ type Meta struct {
 	// goduct.json's upload.maxBytes block; baked into the generated
 	// adapter at codegen time, not read at runtime.
 	UploadMaxBytes int64
+
+	// WebSocketPingInterval, when non-zero, causes the generated
+	// adapter to spawn a background ping goroutine on every accepted
+	// WebSocket connection (ADR 0045 §2). Sourced from goduct.json's
+	// websocket.pingInterval block (parsed via time.ParseDuration).
+	// Zero / absent → no ping goroutine (the v0.6 default).
+	WebSocketPingInterval time.Duration
 }
 
 // ErrorResponse is one `goduct:errorresponse <status> <Type>`
@@ -143,6 +152,13 @@ type Route struct {
 	// generators that don't yet handle WS (openapi, postman, hooks)
 	// see them as no-body routes and skip emission.
 	WebSocket *WebSocketTypes
+
+	// WebSocketSubprotocols is the ordered list of subprotocols the
+	// route accepts (Sec-WebSocket-Protocol header). Populated from
+	// repeated `goduct:wssubprotocol <name>` directives per ADR 0045.
+	// nil/empty for routes that take the default subprotocol. Only
+	// meaningful when WebSocket != nil.
+	WebSocketSubprotocols []string
 
 	// StreamType is non-nil iff this is an SSE route (ADR 0041) —
 	// the handler signature is func(ctx, T) (<-chan E, error) and

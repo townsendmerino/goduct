@@ -455,9 +455,11 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 - **WebSocket** ([ADR 0044](docs/decisions/0044-websocket-bridge.md)) — handlers with `func(ctx, T, *goduct.WSConn[S, C]) error` become typed full-duplex endpoints; TS client returns `WSConnection<S, C>` with `.send` + AsyncIterable `.messages()`; runtime wraps [coder/websocket](https://github.com/coder/websocket) (first non-stdlib runtime dep).
 - **chi-basic SSE demo + closure-pass polish** ([ADR 0043](docs/decisions/0043-v06-closure-pass.md)) — `WatchUserEvents` exercises v0.5's SSE shape end-to-end in the example; multi-file uploads, `upload.maxBytes`, and `maxbytes` validator close the v0.6 upload deferrals in the same commit train.
 
-**v0.6.1** — Polish pass for the v0.6 deferred items (see [TODO.md](TODO.md)): WebSocket subprotocols, ping/pong tuning, binary frames, AsyncAPI export, TS-side reconnection; SSE named events and Last-Event-ID reconnect.
+**v0.6.1** (this release) — WebSocket polish trio (`goduct:wssubprotocol` directive, `goduct.json` `websocket.pingInterval` knob, opt-in TS-side auto-reconnection via `ClientOptions.websocket.reconnect`) plus a new `goduct doctor` CLI subcommand for project introspection.
 
-**v0.7** — Open. Likely candidates: multi-package input, new client-language generators (Swift / Kotlin / Python), `goduct doctor` diagnostic command. See [TODO.md](TODO.md)'s Maybe / opportunistic bucket.
+**v0.6.2** — Remaining v0.6 deferred items (see [TODO.md](TODO.md)): binary WebSocket frames, AsyncAPI export, SSE named events, SSE Last-Event-ID reconnect.
+
+**v0.7** — Open. Likely candidates: multi-package input, new client-language generators (Swift / Kotlin / Python). See [TODO.md](TODO.md)'s Maybe / opportunistic bucket.
 
 ---
 

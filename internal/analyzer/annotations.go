@@ -64,6 +64,12 @@ type Directives struct {
 	// own multipart parsing).
 	Upload bool
 
+	// WebSocketSubprotocols captures each `goduct:wssubprotocol
+	// <name>` line (ADR 0045 §1). Repeatable; order matters
+	// (it's the server's preference list, first matching the
+	// client wins per RFC 6455). Only meaningful on a WS handler.
+	WebSocketSubprotocols []string
+
 	// Doc is the comment text with every goduct: line removed and
 	// surrounding whitespace trimmed. Interior blank lines are preserved.
 	Doc string
@@ -120,10 +126,10 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 	fail := func(msg string) error {
 		return fmt.Errorf("%s (line %d): %s", msg, line, src)
 	}
-	// errorresponse and security are repeatable; each case branch
-	// enforces its own per-entry duplicate rules. Every other
-	// directive is single-shot.
-	if name != "errorresponse" && name != "security" {
+	// errorresponse, security, and wssubprotocol are repeatable;
+	// each case branch enforces its own per-entry rules. Every
+	// other directive is single-shot.
+	if name != "errorresponse" && name != "security" && name != "wssubprotocol" {
 		if seen[name] {
 			return fail("duplicate " + directivePrefix + name + " directive")
 		}
@@ -212,6 +218,17 @@ func (d *Directives) apply(name, args string, line int, src string, seen map[str
 			return fail("upload takes no arguments")
 		}
 		d.Upload = true
+	case "wssubprotocol":
+		v, err := singleArg(args, "wssubprotocol")
+		if err != nil {
+			return fail(err.Error())
+		}
+		for _, prev := range d.WebSocketSubprotocols {
+			if prev == v {
+				return fail("duplicate goduct:wssubprotocol " + strconv.Quote(v))
+			}
+		}
+		d.WebSocketSubprotocols = append(d.WebSocketSubprotocols, v)
 	case "security":
 		v, err := singleArg(args, "security")
 		if err != nil {

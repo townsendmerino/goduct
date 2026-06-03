@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/townsendmerino/goduct/internal/analyzer"
 	"github.com/townsendmerino/goduct/internal/cliconfig"
@@ -36,11 +37,18 @@ func main() { os.Exit(run(os.Args[1:])) }
 // run is main's testable core: argv without the program name in,
 // process exit code out. It never calls os.Exit itself.
 func run(argv []string) int {
-	if len(argv) == 0 || argv[0] != "gen" {
+	if len(argv) == 0 {
 		usage()
 		return 2
 	}
-	return runGen(argv[1:])
+	switch argv[0] {
+	case "gen":
+		return runGen(argv[1:])
+	case "doctor":
+		return runDoctor(argv[1:])
+	}
+	usage()
+	return 2
 }
 
 // genSpec is one row of the generator dispatch table. fn is the ADR 0022
@@ -209,6 +217,11 @@ func runGen(args []string) int {
 		return 2
 	}
 
+	meta, err := metaFromConfig(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "goduct:", err)
+		return 1
+	}
 	req := runRequest{
 		pattern:  pattern,
 		out:      *out,
@@ -218,7 +231,7 @@ func runGen(args []string) int {
 		chosen:   chosen,
 		needOut:  needOut,
 		adapters: adapters.Map(),
-		meta:     metaFromConfig(cfg),
+		meta:     meta,
 	}
 
 	// First run uses the loud-failure contract: any analyze/generate/IO
@@ -254,13 +267,15 @@ type runRequest struct {
 	meta     ir.Meta           // ADR 0038: stamped onto api.Meta after Analyze
 }
 
-// metaFromConfig translates the goduct.json "openapi" and "security"
-// blocks into the ir.Meta the openapi generator reads (ADRs 0038
-// §5, 0039 §2). Returns the zero value when cfg is nil — the
-// generator then falls back to its built-in defaults.
-func metaFromConfig(cfg *cliconfig.Config) ir.Meta {
+// metaFromConfig translates the goduct.json "openapi", "security",
+// "upload", and "websocket" blocks into the ir.Meta the generators
+// read (ADRs 0038, 0039, 0043, 0045). Returns the zero value when
+// cfg is nil. Errors out only on malformed values that the JSON
+// schema can't catch — currently just an invalid
+// websocket.pingInterval duration.
+func metaFromConfig(cfg *cliconfig.Config) (ir.Meta, error) {
 	if cfg == nil {
-		return ir.Meta{}
+		return ir.Meta{}, nil
 	}
 	var m ir.Meta
 	if cfg.OpenAPI != nil {
@@ -276,7 +291,15 @@ func metaFromConfig(cfg *cliconfig.Config) ir.Meta {
 	if cfg.Upload != nil {
 		m.UploadMaxBytes = cfg.Upload.MaxBytes
 	}
-	return m
+	if cfg.Websocket != nil && cfg.Websocket.PingInterval != "" {
+		d, err := time.ParseDuration(cfg.Websocket.PingInterval)
+		if err != nil {
+			return ir.Meta{}, fmt.Errorf(
+				"goduct.json websocket.pingInterval: %w", err)
+		}
+		m.WebSocketPingInterval = d
+	}
+	return m, nil
 }
 
 // generateOnce runs analyze + render-to-memory + write for one regen.
@@ -383,6 +406,17 @@ func splitTags(s string) []string {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `goduct - typed TS/Go clients from annotated Go handlers
+
+usage:
+  goduct gen <pattern> --out <dir> [generators]
+  goduct doctor [<pattern>] [--config <path>] [--dir <dir>] [--json]
+
+gen — generate TS / Go code per the selected generators.
+doctor — introspect a project: resolved goduct.json + analyzed routes
+         and types. Read-only; emits human-readable text by default,
+         --json for tooling. Per ADR 0045 §4.
+
+gen flags + generators below.
 
 usage: goduct gen <pattern> --out <dir> [generators]
 

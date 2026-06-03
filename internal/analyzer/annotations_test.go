@@ -358,3 +358,38 @@ func TestParseDirectives_Upload(t *testing.T) {
 		}
 	})
 }
+
+// TestParseDirectives_WSSubprotocol covers ADR 0045 §1: the
+// goduct:wssubprotocol directive is repeatable (ordered), takes a
+// single arg, and rejects duplicates.
+func TestParseDirectives_WSSubprotocol(t *testing.T) {
+	t.Run("ordered repetition captured as-written", func(t *testing.T) {
+		d, err := ParseDirectives(
+			"goduct:route GET /ws\n" +
+				"goduct:wssubprotocol graphql-transport-ws\n" +
+				"goduct:wssubprotocol graphql-ws")
+		if err != nil {
+			t.Fatalf("ParseDirectives: %v", err)
+		}
+		if len(d.WebSocketSubprotocols) != 2 ||
+			d.WebSocketSubprotocols[0] != "graphql-transport-ws" ||
+			d.WebSocketSubprotocols[1] != "graphql-ws" {
+			t.Errorf("WebSocketSubprotocols = %v", d.WebSocketSubprotocols)
+		}
+	})
+	t.Run("duplicate name loud-fails", func(t *testing.T) {
+		_, err := ParseDirectives(
+			"goduct:route GET /ws\n" +
+				"goduct:wssubprotocol chat\n" +
+				"goduct:wssubprotocol chat")
+		if err == nil || !strings.Contains(err.Error(), "duplicate goduct:wssubprotocol") {
+			t.Errorf("expected duplicate error, got %v", err)
+		}
+	})
+	t.Run("missing argument loud-fails", func(t *testing.T) {
+		_, err := ParseDirectives("goduct:route GET /ws\ngoduct:wssubprotocol")
+		if err == nil || !strings.Contains(err.Error(), "requires an argument") {
+			t.Errorf("expected missing-arg error, got %v", err)
+		}
+	})
+}

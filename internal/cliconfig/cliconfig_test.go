@@ -187,3 +187,16 @@ func TestParse_UploadBlock(t *testing.T) {
 		}
 	})
 }
+
+// TestParse_WebsocketBlock covers ADR 0045 §2: the goduct.json
+// "websocket" block surfaces with PingInterval, pointer-typed so
+// absence stays distinguishable from {"websocket":{}}.
+func TestParse_WebsocketBlock(t *testing.T) {
+	cfg, err := Parse([]byte(`{"websocket":{"pingInterval":"30s"}}`), "t.json")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Websocket == nil || cfg.Websocket.PingInterval != "30s" {
+		t.Errorf("Websocket = %+v, want {PingInterval:30s}", cfg.Websocket)
+	}
+}

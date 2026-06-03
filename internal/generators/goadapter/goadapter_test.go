@@ -505,3 +505,46 @@ func TestGenerateFramework_WebSocket(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerateFramework_WSSubprotocolsAndPing covers ADR 0045 §1
+// and §2: Route.WebSocketSubprotocols threads through as
+// &websocket.AcceptOptions{Subprotocols:…}, and a non-zero
+// api.Meta.WebSocketPingInterval becomes a
+// goduct.WithPingInterval option on the NewWSConn call.
+func TestGenerateFramework_WSSubprotocolsAndPing(t *testing.T) {
+	wsAPI := &ir.API{
+		SourceDirs: map[string]string{"pkg": "/tmp/pkg"},
+		Meta:       ir.Meta{WebSocketPingInterval: 30 * 1000 * 1000 * 1000}, // 30s in nanos
+		Routes: []ir.Route{{
+			HandlerName: "GraphQL", Method: "GET", Path: "/graphql", Tag: "graphql",
+			Mode:          ir.ModeIdiomatic,
+			Pos:           "/tmp/pkg/ws.go:1:1",
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.GraphQLReq"},
+			SuccessStatus: 200,
+			WebSocket: &ir.WebSocketTypes{
+				Send: &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ServerMsg"},
+				Recv: &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.ClientMsg"},
+			},
+			WebSocketSubprotocols: []string{"graphql-transport-ws", "graphql-ws"},
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.GraphQLReq": {QualifiedName: "pkg.GraphQLReq", Name: "GraphQLReq", Kind: ir.TypeStruct},
+			"pkg.ServerMsg":  {QualifiedName: "pkg.ServerMsg", Name: "ServerMsg", Kind: ir.TypeStruct},
+			"pkg.ClientMsg":  {QualifiedName: "pkg.ClientMsg", Name: "ClientMsg", Kind: ir.TypeStruct},
+		},
+	}
+	var buf bytes.Buffer
+	if err := GenerateFramework(wsAPI, &buf, "chi"); err != nil {
+		t.Fatalf("GenerateFramework: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `&websocket.AcceptOptions{Subprotocols: []string{"graphql-transport-ws", "graphql-ws"}}`) {
+		t.Errorf("Subprotocols should thread through AcceptOptions verbatim:\n%s", out)
+	}
+	if !strings.Contains(out, "goduct.WithPingInterval(30000000000)") {
+		t.Errorf("WebSocketPingInterval should become a WithPingInterval nanos literal:\n%s", out)
+	}
+	if _, err := format.Source(buf.Bytes()); err != nil {
+		t.Errorf("output not valid Go: %v\n%s", err, out)
+	}
+}

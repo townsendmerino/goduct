@@ -11,41 +11,23 @@ finer-grained, ADR-anchored punch list.
 
 ---
 
-## v0.6.1 — closure pass on the v0.6 wire-shape bundle
+## v0.6.2 — remaining v0.6 deferrals
 
-Seven items deferred during the v0.6 work: five WebSocket-side per
-[ADR 0044 §9](docs/decisions/0044-websocket-bridge.md), two
-SSE-side per [ADR 0041 §7](docs/decisions/0041-sse-streaming.md)
-(and reaffirmed in [ADR 0043 §1](docs/decisions/0043-v06-closure-pass.md)).
+Four items left after v0.6.1 closed the three mechanical WebSocket
+polish items (subprotocols, ping interval, TS reconnection) plus
+shipped `goduct doctor` per
+[ADR 0045](docs/decisions/0045-v06-closure-plus-doctor.md). The
+items below each need their own design ADR before implementation.
 
-WebSocket polish:
-
-- **Subprotocols** (Sec-WebSocket-Protocol). v0.6 always uses the
-  default subprotocol. Adding a `goduct:wssubprotocol` directive
-  is a small follow-up. **Trigger:** user reports needing a
-  named subprotocol (mqtt, graphql-ws, etc.).
-
-- **Ping/pong timeout customization.** coder/websocket has
-  sensible defaults; surfacing knobs through goduct.json is a
-  future ADR. **Trigger:** user reports keepalive-related
-  disconnections.
-
-- **Binary frames.** v0.6 messages are all JSON text frames via
-  wsjson. Binary support is a different IR shape (message type
-  is `[]byte`, not a named struct). **Trigger:** user reports a
-  protobuf-over-WS or audio-streaming use case.
+- **Binary WebSocket frames.** v0.6 + v0.6.1 messages are all JSON
+  text frames via wsjson. Binary support is a different IR shape
+  (message type is `[]byte`, not a named struct). **Trigger:**
+  user reports a protobuf-over-WS or audio-streaming use case.
 
 - **AsyncAPI export.** Proper protocol-aware spec emission via
   AsyncAPI 3.0. Adds another sibling generator like swaggerui.
   **Trigger:** user reports needing WS docs in the same place as
   HTTP docs.
-
-- **TS-side reconnection / backoff / buffering.** Browser
-  WebSocket is fire-and-forget; the current `WSConnection` class
-  doesn't auto-retry. **Trigger:** user reports needing
-  transparent reconnect on flaky networks.
-
-SSE polish:
 
 - **Named SSE events** (`event: foo\ndata: {...}\n\n`). Currently
   goduct emits only nameless `data:` blocks. Needs a discriminated-
@@ -119,13 +101,6 @@ ADRs as deferrals, just possibilities flagged in the README's
   existing IR. No analyzer changes needed. **Trigger:** any
   contributor wants to add one, OR goduct's user base widens past
   Go+TS shops.
-
-- **`goduct doctor` diagnostic command.** Print the resolved
-  config, the analyzed routes, the framework target, and any
-  unhealthy state in one machine-readable + human-readable dump.
-  Useful for "why isn't my route showing up?" debugging.
-  **Trigger:** any time the support-question pattern matches this
-  shape twice.
 
 - **Streaming hooks for React Query.** Once `@tanstack/react-query`
   (or a community plugin) settles on a subscription/iterator hook

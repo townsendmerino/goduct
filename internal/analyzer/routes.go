@@ -322,6 +322,16 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		}
 		route.WebSocket = &ir.WebSocketTypes{Send: sRef, Recv: rRef}
 	}
+	// ADR 0045 §1: wssubprotocol is a WS-only directive. On a
+	// non-WS handler it would silently do nothing on the wire, so
+	// loud-fail with a hint.
+	if len(dirs.WebSocketSubprotocols) > 0 {
+		if wsSendNamed == nil {
+			return fail("handler %s: goduct:wssubprotocol is only valid on a WebSocket handler "+
+				"(third parameter must be *goduct.WSConn[S, C]; ADR 0045)", name)
+		}
+		route.WebSocketSubprotocols = dirs.WebSocketSubprotocols
+	}
 
 	// ADR 0039: capture goduct:example verbatim and resolve each
 	// goduct:errorresponse <status> <Type> against the handler's

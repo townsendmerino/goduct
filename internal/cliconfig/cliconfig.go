@@ -37,6 +37,7 @@ type Config struct {
 	OpenAPI    *OpenAPI          `json:"openapi,omitempty"`
 	Security   *Security         `json:"security,omitempty"`
 	Upload     *Upload           `json:"upload,omitempty"`
+	Websocket  *Websocket        `json:"websocket,omitempty"`
 }
 
 // Upload is the goduct.json "upload" block (ADR 0043). MaxBytes
@@ -45,6 +46,15 @@ type Config struct {
 // absent or MaxBytes is zero) is 32 MiB.
 type Upload struct {
 	MaxBytes int64 `json:"maxBytes,omitempty"`
+}
+
+// Websocket is the goduct.json "websocket" block (ADR 0045 §2).
+// PingInterval is a duration string (parsed via
+// time.ParseDuration, e.g. "30s", "1m"). Non-zero / non-empty
+// causes the generated adapter to spawn a background ping
+// goroutine for every accepted WS connection.
+type Websocket struct {
+	PingInterval string `json:"pingInterval,omitempty"`
 }
 
 // Security mirrors the goduct.json "security" block (ADR 0039 §2).

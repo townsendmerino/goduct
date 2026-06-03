@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -228,6 +229,76 @@ func TestEndToEnd_ChiBasic(t *testing.T) {
 		}
 		if !strings.Contains(se.String(), "frameworks") {
 			t.Errorf("unknown-key stderr should name the offending field:\n%s", se.String())
+		}
+	})
+}
+
+// TestEndToEnd_Doctor covers ADR 0045 §4: `goduct doctor` against
+// chi-basic produces a non-empty report naming the expected routes,
+// in both human and --json forms. Builds the binary fresh (same
+// setup as TestEndToEnd_ChiBasic so failures here are real
+// regressions, not stale-binary noise).
+func TestEndToEnd_Doctor(t *testing.T) {
+	root := e2eRepoRoot(t)
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "goduct")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/goduct")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Skipf("go build ./cmd/goduct failed (setup, not a regression): %v\n%s", err, out)
+	}
+
+	t.Run("human report", func(t *testing.T) {
+		var so, se bytes.Buffer
+		c := exec.Command(bin, "doctor", "./examples/chi-basic/api")
+		c.Dir, c.Stdout, c.Stderr = root, &so, &se
+		if err := c.Run(); err != nil {
+			t.Fatalf("doctor exit %v\nstderr:\n%s", err, se.String())
+		}
+		out := so.String()
+		for _, want := range []string{
+			"goduct doctor — analyzed ./examples/chi-basic/api",
+			"Routes:",
+			"GET    /users/:id",
+			"upload",
+			"SSE → UserEvent",
+			"WS",
+			"Types:",
+			"EchoEvent",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("doctor output missing %q; got:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("--json report", func(t *testing.T) {
+		var so, se bytes.Buffer
+		c := exec.Command(bin, "doctor", "./examples/chi-basic/api", "--json")
+		c.Dir, c.Stdout, c.Stderr = root, &so, &se
+		if err := c.Run(); err != nil {
+			t.Fatalf("doctor --json exit %v\nstderr:\n%s", err, se.String())
+		}
+		// Round-trips through encoding/json — quick shape check.
+		var got map[string]any
+		if err := json.Unmarshal(so.Bytes(), &got); err != nil {
+			t.Fatalf("--json output not valid JSON: %v\n%s", err, so.String())
+		}
+		if got["pattern"] != "./examples/chi-basic/api" {
+			t.Errorf("--json pattern field = %v", got["pattern"])
+		}
+		routes, ok := got["routes"].([]any)
+		if !ok || len(routes) != 8 {
+			t.Errorf("--json routes len = %v (want 8): %v", len(routes), got["routes"])
+		}
+	})
+
+	t.Run("unknown subcommand exits 2", func(t *testing.T) {
+		c := exec.Command(bin, "nothing")
+		c.Dir = root
+		err := c.Run()
+		if err == nil || procExit(t, c) != 2 {
+			t.Errorf("unknown subcommand should exit 2; err=%v code=%d", err, procExit(t, c))
 		}
 	})
 }
