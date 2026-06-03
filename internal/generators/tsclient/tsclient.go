@@ -88,6 +88,72 @@ async function request(opts: ClientOptions, r: RequestOpts): Promise<unknown> {
 }
 `
 
+// streamScaffold is appended after the regular scaffold when api has
+// at least one streaming route (ADR 0041). It defines a generic
+// streamSSE<E> helper that fetches the URL, reads the response body
+// as a stream, splits on \n\n, parses each `data: <json>` line, and
+// yields E values. Generated streaming methods call it.
+const streamScaffold = `
+
+async function* streamSSE<E>(opts: ClientOptions, r: RequestOpts): AsyncIterable<E> {
+  const f = opts.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (opts.headers) Object.assign(headers, await opts.headers());
+
+  let url = opts.baseUrl + r.path;
+  if (r.query) {
+    const usp = new URLSearchParams();
+    for (const [k, v] of Object.entries(r.query)) {
+      if (v !== undefined) usp.set(k, String(v));
+    }
+    const qs = usp.toString();
+    if (qs) url += "?" + qs;
+  }
+
+  const res = await f(url, { method: r.method, headers });
+  if (!res.ok || !res.body) {
+    const text = res.body ? await res.text() : "";
+    const err = text ? (JSON.parse(text) as { code?: string; message?: string; details?: unknown }) : undefined;
+    throw new GoductError(
+      res.status,
+      err?.code ?? "unknown",
+      err?.message ?? res.statusText,
+      err?.details,
+    );
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      for (const line of block.split("\n")) {
+        if (line.startsWith("data: ")) {
+          yield JSON.parse(line.slice(6)) as E;
+        }
+      }
+    }
+  }
+}
+`
+
+// hasStreaming reports whether any route in api uses SSE streaming
+// (ADR 0041). Used to decide whether to emit the streamSSE helper.
+func hasStreaming(api *ir.API) bool {
+	for _, r := range api.Routes {
+		if r.StreamType != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Generate writes a deterministic client.ts for api to w (ADR 0022).
 func Generate(api *ir.API, w io.Writer) error {
 	var b strings.Builder
@@ -96,6 +162,11 @@ func Generate(api *ir.API, w io.Writer) error {
 	b.WriteString("import * as schemas from \"./schemas\";\n")
 	b.WriteString("import type * as t from \"./types\";\n\n")
 	b.WriteString(scaffold)
+	// ADR 0041: streamSSE helper is only emitted when needed so APIs
+	// without streaming routes get the v0.4-byte-identical scaffold.
+	if hasStreaming(api) {
+		b.WriteString(streamScaffold)
+	}
 	b.WriteString("\nexport function createClient(opts: ClientOptions) {\n  return {\n")
 
 	// Tags in first-appearance order; methods within a tag in route order.
@@ -127,6 +198,27 @@ func renderMethod(r ir.Route, adapters map[string]string) string {
 	var b strings.Builder
 	if d := gen.JSDocFull(r.HandlerName, r.Doc); d != "" {
 		b.WriteString("      /** " + d + " */\n")
+	}
+	// ADR 0041: streaming routes return AsyncIterable<E> and delegate
+	// to the streamSSE scaffold helper; no zod validation per event
+	// in v0.5 (the per-event type is still emitted as a regular type
+	// in types.ts, so callers can type-narrow downstream).
+	if r.StreamType != nil {
+		ret := "AsyncIterable<" + tsTypeRef(*r.StreamType) + ">"
+		b.WriteString("      " + gen.MethodName(r.HandlerName, r.Tag) +
+			": (" + signature(r, adapters) + "): " + ret + " =>\n")
+		b.WriteString("        streamSSE<" + tsTypeRef(*r.StreamType) + ">(opts, {\n")
+		b.WriteString("          method: \"" + r.Method + "\",\n")
+		b.WriteString("          path: " + pathExpr(r.Path) + ",\n")
+		if len(r.QueryParams) > 0 {
+			parts := make([]string, len(r.QueryParams))
+			for i, q := range r.QueryParams {
+				parts[i] = q.WireName + ": params." + q.WireName
+			}
+			b.WriteString("          query: { " + strings.Join(parts, ", ") + " },\n")
+		}
+		b.WriteString("        }),")
+		return b.String()
 	}
 	hasResp := r.ResponseType != nil && r.ResponseType.Kind == ir.KindNamed
 	ret := "Promise<void>"

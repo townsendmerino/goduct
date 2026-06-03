@@ -583,3 +583,53 @@ func TestGenerate_PerOperationSecurity(t *testing.T) {
 		t.Errorf("/plain has no per-op security; should inherit (be absent), got %v", plain)
 	}
 }
+
+// TestGenerate_StreamingResponse covers ADR 0041 §6: a route with
+// StreamType set emits responses[<status>].content."text/event-stream"
+// with a $ref to the per-event type. application/json is NOT emitted
+// for the success response.
+func TestGenerate_StreamingResponse(t *testing.T) {
+	api := &ir.API{
+		Types: map[string]ir.TypeDef{
+			"pkg.OrderEvent": mkType("OrderEvent"),
+			"pkg.Req":        mkType("Req"),
+		},
+		Routes: []ir.Route{{
+			HandlerName:   "WatchOrders",
+			Method:        "GET",
+			Path:          "/orders/events",
+			Tag:           "orders",
+			Mode:          ir.ModeIdiomatic,
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.Req"},
+			StreamType:    &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.OrderEvent"},
+			SuccessStatus: 200,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"text/event-stream"`) {
+		t.Errorf("missing text/event-stream content type:\n%s", out)
+	}
+	if !strings.Contains(out, `"$ref": "#/components/schemas/OrderEvent"`) {
+		t.Errorf("missing OrderEvent $ref:\n%s", out)
+	}
+	if !strings.Contains(out, `"Server-Sent Events stream of OrderEvent"`) {
+		t.Errorf("missing SSE description:\n%s", out)
+	}
+	// The success-response should not also emit application/json for
+	// streaming routes — that would be a confused content type.
+	// Spot-check: between the start of the 200 response and the
+	// default response, there should be NO "application/json".
+	idx200 := strings.Index(out, `"200"`)
+	idxDefault := strings.Index(out, `"default"`)
+	if idx200 < 0 || idxDefault < 0 || idx200 >= idxDefault {
+		t.Fatalf("expected 200 before default; got idx200=%d idxDefault=%d", idx200, idxDefault)
+	}
+	successBlock := out[idx200:idxDefault]
+	if strings.Contains(successBlock, `"application/json"`) {
+		t.Errorf("streaming 200 response should not emit application/json; block:\n%s", successBlock)
+	}
+}

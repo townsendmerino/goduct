@@ -45,7 +45,10 @@ func EmitTS(td ir.TypeDef) bool {
 func SourcePath(api *ir.API) string {
 	paths := map[string]struct{}{}
 	for _, r := range api.Routes {
-		for _, ref := range []*ir.TypeRef{r.ResponseType, r.BodyType} {
+		// StreamType (ADR 0041) joins ResponseType + BodyType as a
+		// source for the package path — without it, an API with only
+		// streaming routes would yield an empty SourcePath.
+		for _, ref := range []*ir.TypeRef{r.ResponseType, r.BodyType, r.StreamType} {
 			if ref != nil && ref.Kind == ir.KindNamed {
 				if i := strings.LastIndex(ref.Named, "."); i > 0 {
 					paths[ref.Named[:i]] = struct{}{}

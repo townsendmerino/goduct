@@ -118,23 +118,51 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 			reqNamed.Obj().Name(), reqNamed.Obj().Pkg().Path(), pkg.Types.Path())
 	}
 
+	// res.At(0) shapes:
+	//   case 1: error                      (no response body)
+	//   case 2: *U, error                  (idiomatic response body)
+	//   case 2: <-chan E, error            (SSE streaming, ADR 0041)
 	var respNamed *types.Named
+	var streamNamed *types.Named
 	switch res := sig.Results(); res.Len() {
 	case 1:
 		if !isError(res.At(0).Type()) {
 			return fail("handler %s: single return value must be error", name)
 		}
 	case 2:
-		ptr, ok := res.At(0).Type().(*types.Pointer)
+		if !isError(res.At(1).Type()) {
+			return fail("handler %s: second return value must be error", name)
+		}
+		first := res.At(0).Type()
+		// ADR 0041: streaming detection takes precedence over the
+		// (*U, error) shape — if the first return is a channel of a
+		// named struct, this is an SSE handler.
+		if chType, isChan := first.(*types.Chan); isChan {
+			if chType.Dir() != types.RecvOnly {
+				return fail("handler %s: streaming return must be a receive-only channel (<-chan E), got chan E "+
+					"or send-only channel (ADR 0041)", name)
+			}
+			en, ok := namedStruct(chType.Elem())
+			if !ok {
+				return fail("handler %s: streaming channel element must be a named struct type "+
+					"(ADR 0041 forbids builtin/slice/map element types in the channel)", name)
+			}
+			if en.Obj().Pkg() != pkg.Types {
+				return fail("stream event type %s is defined in package %s, not in handler's package %s "+
+					"(cross-package event types are not supported; ADR 0041 / ADR 0014)",
+					en.Obj().Name(), en.Obj().Pkg().Path(), pkg.Types.Path())
+			}
+			streamNamed = en
+			break
+		}
+		ptr, ok := first.(*types.Pointer)
 		if !ok {
-			return fail("handler %s: first return value must be a pointer to a named struct (*U)", name)
+			return fail("handler %s: first return value must be a pointer to a named struct (*U) "+
+				"or a receive-only channel of a named struct (<-chan E) for SSE", name)
 		}
 		rn, ok := namedStruct(ptr.Elem())
 		if !ok {
 			return fail("handler %s: first return value must be a pointer to a named struct (*U)", name)
-		}
-		if !isError(res.At(1).Type()) {
-			return fail("handler %s: second return value must be error", name)
 		}
 		if rn.Obj().Pkg() != pkg.Types {
 			return fail("response type %s is defined in package %s, not in handler's package %s "+
@@ -143,7 +171,8 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		}
 		respNamed = rn
 	default:
-		return fail("handler %s: must return (*U, error) or error, got %d values", name, res.Len())
+		return fail("handler %s: must return (*U, error), (<-chan E, error), or error, got %d values",
+			name, res.Len())
 	}
 
 	route := ir.Route{
@@ -167,7 +196,13 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 		route.Tag = inferTag(route.Path)
 	}
 
-	status, err := resolveStatus(dirs, route.Method, respNamed != nil, name)
+	// Streaming counts as "has response" for status-defaulting purposes
+	// (the stream IS the response). resolveStatus defaults streaming
+	// routes to 200 because every GET defaults to 200 — streaming is
+	// always GET in practice. 201 / 204 for streaming are nonsensical
+	// and the user gets the same loud-fail any non-2xx status would
+	// produce via the existing analyzer.
+	status, err := resolveStatus(dirs, route.Method, respNamed != nil || streamNamed != nil, name)
 	if err != nil {
 		return ir.Route{}, fmt.Errorf("goduct: %s: %w", pos, err)
 	}
@@ -196,6 +231,16 @@ func discoverHandler(pkg *packages.Package, fn *ast.FuncDecl) (ir.Route, error) 
 			return fail("handler %s response type: %v", name, err)
 		}
 		route.ResponseType = rRef
+	}
+	// ADR 0041: streaming routes set StreamType to the per-event type;
+	// ResponseType stays nil so generators that don't yet handle
+	// streaming see them as no-body routes (which they skip).
+	if streamNamed != nil {
+		sRef, err := namedRefWithArgs(streamNamed)
+		if err != nil {
+			return fail("handler %s stream type: %v", name, err)
+		}
+		route.StreamType = sRef
 	}
 
 	// ADR 0039: capture goduct:example verbatim and resolve each

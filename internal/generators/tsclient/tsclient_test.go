@@ -186,3 +186,75 @@ func TestSchemasExpr(t *testing.T) {
 		})
 	}
 }
+
+// TestGenerate_StreamingMethod covers ADR 0041: a streaming route
+// produces an AsyncIterable<E> method that delegates to the
+// streamSSE scaffold helper (which is conditionally appended only
+// when at least one streaming route exists).
+func TestGenerate_StreamingMethod(t *testing.T) {
+	api := &ir.API{
+		Types: map[string]ir.TypeDef{
+			"pkg.WatchReq":   {QualifiedName: "pkg.WatchReq", Name: "WatchReq", Kind: ir.TypeStruct},
+			"pkg.OrderEvent": {QualifiedName: "pkg.OrderEvent", Name: "OrderEvent", Kind: ir.TypeStruct,
+				Fields: []ir.Field{{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}}},
+		},
+		Routes: []ir.Route{{
+			HandlerName:   "WatchOrders",
+			Method:        "GET",
+			Path:          "/orders/events",
+			Tag:           "orders",
+			Mode:          ir.ModeIdiomatic,
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.WatchReq"},
+			StreamType:    &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.OrderEvent"},
+			SuccessStatus: 200,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "async function* streamSSE<E>") {
+		t.Errorf("missing streamSSE helper (should be emitted when streaming routes exist):\n%s", out)
+	}
+	if !strings.Contains(out, "AsyncIterable<t.OrderEvent>") {
+		t.Errorf("missing AsyncIterable<t.OrderEvent> return type:\n%s", out)
+	}
+	if !strings.Contains(out, "streamSSE<t.OrderEvent>(opts,") {
+		t.Errorf("streaming method should delegate to streamSSE helper:\n%s", out)
+	}
+	// Non-streaming method shape (`async (...) => {`) should NOT appear
+	// for the streaming method.
+	if strings.Contains(out, "watch: async (") {
+		t.Errorf("streaming method should not use the async-arrow shape (it returns AsyncIterable, not Promise):\n%s", out)
+	}
+}
+
+// TestGenerate_NoStreamingNoHelper: when an API has zero streaming
+// routes the streamSSE helper is NOT emitted, keeping the v0.4
+// scaffold byte-identical (verified at the chi-basic golden level
+// by the existing TestGenerate_Golden).
+func TestGenerate_NoStreamingNoHelper(t *testing.T) {
+	api := &ir.API{
+		Types: map[string]ir.TypeDef{
+			"pkg.R": {QualifiedName: "pkg.R", Name: "R", Kind: ir.TypeStruct,
+				Fields: []ir.Field{{GoName: "ID", JSONName: "id", Source: ir.FieldSourceJSON,
+					Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"}}}},
+		},
+		Routes: []ir.Route{{
+			HandlerName: "Get", Method: "GET", Path: "/r", Tag: "r",
+			Mode:          ir.ModeIdiomatic,
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.R"},
+			ResponseType:  &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.R"},
+			SuccessStatus: 200,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := Generate(api, &buf); err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	if strings.Contains(buf.String(), "streamSSE") {
+		t.Errorf("streamSSE helper should NOT be emitted when no streaming routes:\n%s", buf.String())
+	}
+}

@@ -147,6 +147,13 @@ type variable struct {
 func buildItems(api *ir.API) []any {
 	byTag := map[string][]ir.Route{}
 	for _, r := range api.Routes {
+		// ADR 0041: Postman v2.1 doesn't model SSE well (the request
+		// would hang indefinitely with no useful UI affordance), so
+		// streaming routes are omitted from the collection. The
+		// openapi.json + swagger-ui still describe them.
+		if r.StreamType != nil {
+			continue
+		}
 		byTag[r.Tag] = append(byTag[r.Tag], r)
 	}
 	tagKeys := make([]string, 0, len(byTag))

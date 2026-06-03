@@ -98,6 +98,16 @@ func DiscoverTypes(pkg *packages.Package, routes []ir.Route) (map[string]ir.Type
 				add(x)
 			}
 		}
+		// ADR 0041: streaming event type is a reachable seed — the
+		// openapi text/event-stream schema and the tsclient AsyncIterable
+		// element both need the type rendered into api.Types.
+		if r.StreamType != nil {
+			var d []string
+			collectNamedDeps(*r.StreamType, &d)
+			for _, x := range d {
+				add(x)
+			}
+		}
 	}
 
 	for _, s := range seeds {

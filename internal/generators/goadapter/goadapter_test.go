@@ -252,3 +252,59 @@ func TestQueryAssign(t *testing.T) {
 		t.Errorf("float: %q", got)
 	}
 }
+
+// TestGenerateFramework_StreamingMode covers ADR 0041: a route with
+// StreamType set emits a streaming wrapper that calls the user's
+// handler returning a channel, sets SSE headers, and delegates to
+// goduct.SSEStream. All four frameworks share the runtime helper so
+// the per-framework variation is just the writer/context expressions.
+func TestGenerateFramework_StreamingMode(t *testing.T) {
+	streamAPI := &ir.API{
+		SourceDirs: map[string]string{"pkg": "/tmp/pkg"},
+		Routes: []ir.Route{{
+			HandlerName:   "WatchOrders",
+			Method:        "GET",
+			Path:          "/orders/:id/events",
+			Tag:           "orders",
+			Mode:          ir.ModeIdiomatic,
+			Pos:           "/tmp/pkg/stream.go:1:1",
+			RequestType:   &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.WatchOrdersRequest"},
+			StreamType:    &ir.TypeRef{Kind: ir.KindNamed, Named: "pkg.OrderEvent"},
+			SuccessStatus: 200,
+			PathParams: []ir.Param{{
+				GoName: "ID", WireName: "id",
+				Type: ir.TypeRef{Kind: ir.KindBuiltin, Builtin: "string"},
+			}},
+		}},
+		Types: map[string]ir.TypeDef{
+			"pkg.WatchOrdersRequest": {QualifiedName: "pkg.WatchOrdersRequest", Name: "WatchOrdersRequest", Kind: ir.TypeStruct},
+			"pkg.OrderEvent":         {QualifiedName: "pkg.OrderEvent", Name: "OrderEvent", Kind: ir.TypeStruct},
+		},
+	}
+	for _, fw := range []string{"chi", "gin", "echo", "mux"} {
+		t.Run(fw, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := GenerateFramework(streamAPI, &buf, fw); err != nil {
+				t.Fatalf("GenerateFramework(%s): %v", fw, err)
+			}
+			out := buf.String()
+			// Header writes are framework-independent (always w / c.Writer / c.Response().Writer).
+			if !strings.Contains(out, `.Header().Set("Content-Type", "text/event-stream")`) {
+				t.Errorf("%s: missing Content-Type header:\n%s", fw, out)
+			}
+			if !strings.Contains(out, `.Header().Set("Cache-Control", "no-cache")`) {
+				t.Errorf("%s: missing Cache-Control header:\n%s", fw, out)
+			}
+			if !strings.Contains(out, "goduct.SSEStream(") {
+				t.Errorf("%s: missing goduct.SSEStream call:\n%s", fw, out)
+			}
+			if !strings.Contains(out, "ch, err := WatchOrders(") {
+				t.Errorf("%s: missing handler call returning channel:\n%s", fw, out)
+			}
+			// goformat must succeed (validates output is real Go).
+			if _, err := format.Source(buf.Bytes()); err != nil {
+				t.Errorf("%s: generated output not valid Go: %v\n%s", fw, err, out)
+			}
+		})
+	}
+}

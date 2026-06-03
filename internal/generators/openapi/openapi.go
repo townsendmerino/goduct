@@ -306,7 +306,18 @@ func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 	// Responses: success status + synthesized `default` -> GoductError.
 	op.Responses = map[string]*response{}
 	key := fmt.Sprintf("%d", r.SuccessStatus)
-	if r.ResponseType != nil {
+	switch {
+	case r.StreamType != nil:
+		// ADR 0041: streaming routes emit text/event-stream with the
+		// per-event schema. goduct:example doesn't apply to streams in
+		// v0.5 (named events deferred).
+		op.Responses[key] = &response{
+			Description: "Server-Sent Events stream of " + short(r.StreamType.Named),
+			Content: map[string]*mediaType{
+				"text/event-stream": {Schema: schemaForRef(api, *r.StreamType)},
+			},
+		}
+	case r.ResponseType != nil:
 		mt := &mediaType{Schema: schemaForRef(api, *r.ResponseType)}
 		// ADR 0039: attach goduct:example to the success response body.
 		// Parse once into `any` so the JSON encoder emits the value
@@ -323,7 +334,7 @@ func buildOperation(api *ir.API, r ir.Route) (*operation, error) {
 			Description: "OK",
 			Content:     map[string]*mediaType{"application/json": mt},
 		}
-	} else {
+	default:
 		desc := "OK"
 		if r.SuccessStatus == 204 {
 			desc = "No Content"

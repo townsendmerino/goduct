@@ -114,8 +114,17 @@ type Route struct {
 	RequestType *TypeRef
 
 	// ResponseType references the response value's type. nil means the
-	// handler returns no body (status 204).
+	// handler returns no body (status 204) or is a streaming route
+	// (StreamType is non-nil instead).
 	ResponseType *TypeRef
+
+	// StreamType is non-nil iff this is an SSE route (ADR 0041) —
+	// the handler signature is func(ctx, T) (<-chan E, error) and
+	// StreamType points at E (always KindNamed; same-package named
+	// struct per the detection rule). ResponseType is nil for
+	// streaming routes; generators that don't yet handle streaming
+	// see them as "no response body" and skip body emission.
+	StreamType *TypeRef
 
 	// SuccessStatus is the HTTP status returned on a non-error result.
 	// Defaults to 200, or 201 for POST, or 204 when ResponseType is nil.

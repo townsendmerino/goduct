@@ -337,6 +337,32 @@ Wire shapes: `string`, `number`, `boolean`, `unknown`. The user's `MarshalJSON` 
 
 **OpenAPI polish ([ADR 0039](docs/decisions/0039-openapi-polish-trio.md), [ADR 0040](docs/decisions/0040-v04-closure-pass.md)):** `goduct:example {...}` attaches a real JSON example to a response body; `goduct:requestexample {...}` does the same for request bodies; `goduct:errorresponse <status> <Type>` declares per-status error response shapes; security schemes flow from `goduct.json` into `components.securitySchemes` plus a document-level `security` array; `goduct:security <scheme>` (or `goduct:security none`) on a handler overrides the document default for that operation.
 
+**Server-Sent Events ([ADR 0041](docs/decisions/0041-sse-streaming.md)):** a handler with signature `func(ctx, T) (<-chan E, error)` becomes an SSE endpoint. The generated TS client method returns `AsyncIterable<E>` (iterate with `for await`); the four framework adapters all delegate to a generic `goduct.SSEStream` runtime helper that handles headers, flushing, and ctx-cancel. OpenAPI emits `text/event-stream`. Postman and React Query hooks skip streaming routes (Postman doesn't model SSE; React Query v5 has no first-class iterator hook); users call the AsyncIterable directly.
+
+```go
+// goduct:route GET /orders/:id/events
+// goduct:tag   orders
+func WatchOrders(ctx context.Context, req WatchOrdersRequest) (<-chan OrderEvent, error) {
+    out := make(chan OrderEvent)
+    go func() {
+        defer close(out)
+        for e := range source {
+            select {
+            case <-ctx.Done(): return
+            case out <- e:
+            }
+        }
+    }()
+    return out, nil
+}
+```
+
+```typescript
+for await (const event of api.orders.watch({ id: "o_1" })) {
+    console.log(event);
+}
+```
+
 **Not yet supported (planned):** SSE/streaming; WebSockets; file upload helpers. See the [Roadmap](#roadmap).
 
 ---
@@ -377,9 +403,11 @@ The IR is the contract. If you want to add a generator (e.g. SolidJS, Swift clie
 
 **v0.4** — Type-union generic constraints (`[T int | int64]` → `<T extends number>`), gin/echo raw `http.HandlerFunc` via context-bridge wrappers, `goduct.json` project config, OpenAPI polish trio (`goduct:example`, security schemes, `goduct:errorresponse`).
 
-**v0.4.1** (this release) — Closure pass: `goduct:requestexample`, per-handler `goduct:security <scheme>` override, plus chi-basic coverage for the `url`/`len` validators, combined path+query argument object, and `bool`/`float` query-param conversion (the v0.2-era spec-trust caveats).
+**v0.4.1** — Closure pass: `goduct:requestexample`, per-handler `goduct:security <scheme>` override, plus chi-basic coverage for the `url`/`len` validators, combined path+query argument object, and `bool`/`float` query-param conversion (the v0.2-era spec-trust caveats).
 
-**v0.5** — SSE / streaming responses, file upload helpers, WebSocket bridge (probably).
+**v0.5** (this release) — Server-Sent Events: handlers with `func(ctx, T) (<-chan E, error)` shape become SSE endpoints; TS client returns `AsyncIterable<E>`; the four framework adapters share a `goduct.SSEStream` runtime helper.
+
+**v0.6** — File upload helpers, WebSocket bridge (probably).
 
 **Maybe** — Swift client, Kotlin client, Python client. These follow the same pattern: implement a `Generator`, consume the IR.
 

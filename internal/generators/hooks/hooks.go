@@ -54,10 +54,18 @@ func Generate(api *ir.API, w io.Writer) error {
 	b.WriteString(header)
 	b.WriteString("export function createHooks(client: Client) {\n")
 	b.WriteString("  return {\n")
-	for i, r := range api.Routes {
-		if i > 0 {
+	first := true
+	for _, r := range api.Routes {
+		// ADR 0041: streaming routes skip hooks emission — React Query
+		// v5 has no first-class subscription/iterator hook in v0.5.
+		// Users call the AsyncIterable directly from the typed client.
+		if r.StreamType != nil {
+			continue
+		}
+		if !first {
 			b.WriteString("\n")
 		}
+		first = false
 		b.WriteString(hookFor(r, api.CustomAdapters))
 	}
 	b.WriteString("  };\n")

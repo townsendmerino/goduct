@@ -330,6 +330,13 @@ func rawRequestExpr(fw *framework) string {
 // BEFORE path params are applied, so a client cannot override a path
 // param via the body. Do not reorder.
 func wrapper(fw *framework, rt ir.Route) string {
+	// ADR 0041: streaming routes take a different code path —
+	// no body decode (streaming is always GET), no JSON response
+	// write, delegate to goduct.SSEStream after setting headers.
+	if rt.StreamType != nil {
+		return streamWrapper(fw, rt)
+	}
+
 	reqType := requestTypeName(rt)
 	var b strings.Builder
 	b.WriteString("func handle" + rt.HandlerName + "(" + fw.wrapperParams + ")")
@@ -368,6 +375,42 @@ func wrapper(fw *framework, rt ir.Route) string {
 	b.WriteString("\tif err != nil {\n\t\tgoduct.WriteError(" + fw.writerExpr +
 		", err)\n\t\t" + fw.earlyReturn + "\n\t}\n")
 	b.WriteString("\tgoduct.WriteJSON(" + fw.writerExpr + ", " + statusConst(rt.SuccessStatus) + ", resp)\n")
+	b.WriteString(fw.finalReturn)
+	b.WriteString("}")
+	return b.String()
+}
+
+// streamWrapper renders the handle<Name> for an SSE route (ADR 0041).
+// Shape: var req + path + query assignment, then call the user's
+// handler (which returns a receive-only channel + error), then on
+// nil error set the SSE headers + delegate to goduct.SSEStream.
+// Always GET in practice — body decode is skipped (streaming routes
+// have no BodyType per the analyzer's signature recognition).
+func streamWrapper(fw *framework, rt ir.Route) string {
+	reqType := requestTypeName(rt)
+	var b strings.Builder
+	b.WriteString("func handle" + rt.HandlerName + "(" + fw.wrapperParams + ")")
+	if fw.wrapperRet != "" {
+		b.WriteString(" " + fw.wrapperRet)
+	}
+	b.WriteString(" {\n")
+	b.WriteString("\tvar req " + reqType + "\n")
+	for _, p := range rt.PathParams {
+		b.WriteString("\treq." + p.GoName + " = " + fw.pathParamExpr(p.WireName) + "\n")
+	}
+	if len(rt.QueryParams) > 0 {
+		b.WriteString("\tq := " + fw.queryExpr + "\n")
+		for _, p := range rt.QueryParams {
+			b.WriteString(queryAssign(fw, p))
+		}
+	}
+	b.WriteString("\tch, err := " + rt.HandlerName + "(" + fw.ctxExpr + ", req)\n")
+	b.WriteString("\tif err != nil {\n\t\tgoduct.WriteError(" + fw.writerExpr +
+		", err)\n\t\t" + fw.earlyReturn + "\n\t}\n")
+	b.WriteString("\t" + fw.writerExpr + ".Header().Set(\"Content-Type\", \"text/event-stream\")\n")
+	b.WriteString("\t" + fw.writerExpr + ".Header().Set(\"Cache-Control\", \"no-cache\")\n")
+	b.WriteString("\t" + fw.writerExpr + ".WriteHeader(" + statusConst(rt.SuccessStatus) + ")\n")
+	b.WriteString("\tgoduct.SSEStream(" + fw.ctxExpr + ", " + fw.writerExpr + ", ch)\n")
 	b.WriteString(fw.finalReturn)
 	b.WriteString("}")
 	return b.String()
